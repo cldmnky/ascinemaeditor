@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asciinema Web Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #282c34;
+            --fg-color: #ffffff;
+            --header-bg: #21252b;
+            --controls-bg: #3a4049;
+            --button-bg: #4f5660;
+            --button-hover-bg: #68707a;
+            --shadow-color: rgba(0, 0, 0, 0.4);
+            --font-family-mono: 'Fira Code', monospace;
+            --font-family-sans: 'Inter', sans-serif;
+            --accent-color: #81a2be;
+            --danger-color: #cc6666;
+            --input-bg: #3e4451;
+            --highlight-bg: rgba(129, 162, 190, 0.2);
+        }
+
+        body {
+            font-family: var(--font-family-sans);
+            background-color: #3e4451;
+            color: var(--fg-color);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+
+        .editor-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            width: 100%;
+            max-width: 1800px;
+        }
+
+        .panel {
+            background: var(--header-bg);
+            border-radius: 12px;
+            box-shadow: 0 5px 20px var(--shadow-color);
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 2rem);
+        }
+
+        .panel-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--controls-bg);
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .file-actions button {
+            font-family: var(--font-family-sans);
+            background-color: var(--button-bg);
+            color: var(--fg-color);
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .file-actions button:hover {
+            background-color: var(--button-hover-bg);
+        }
+        
+        /* Player & Right Panel Styles */
+        .player-panel {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 0; /* Fix for nested flexbox scrolling */
+        }
+
+        .tab-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem 0 1.5rem;
+            border-bottom: 1px solid var(--controls-bg);
+            flex-shrink: 0;
+        }
+        .tab-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .tab-btn {
+            padding: 0.75rem 1.25rem;
+            background: none;
+            border: none;
+            color: #9da5b3;
+            cursor: pointer;
+            font-size: 0.9rem;
+            border-bottom: 2px solid transparent;
+            transition: color 0.2s ease, border-color 0.2s ease;
+        }
+        .tab-btn:hover {
+            color: var(--fg-color);
+        }
+        .tab-btn.active {
+            color: var(--fg-color);
+            border-bottom-color: var(--accent-color);
+        }
+
+        .tab-content {
+            display: none;
+            flex-grow: 1;
+            min-height: 0;
+            max-height: calc(100vh - 200px); /* Reserve space for header/controls */
+            flex: 1;
+            overflow: hidden; /* Prevent content from growing beyond bounds */
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            max-height: calc(100vh - 200px); /* Consistent height constraint */
+            overflow: hidden;
+        }
+
+        .terminal-container {
+            flex: 1;
+            min-height: 0;
+            max-height: 60vh; /* Constrain terminal to 60% of viewport height */
+            padding: 0 1rem 1rem;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevent container from growing beyond bounds */
+        }
+
+        /* Ensure xterm.js viewport fills the container */
+        .terminal-container .xterm {
+            flex: 1;
+            min-height: 0;
+            max-height: 100%; /* Ensure it doesn't exceed container */
+            overflow: hidden; /* Let xterm handle its own scrolling */
+        }
+        
+        /* Ensure the xterm viewport is properly sized */
+        .terminal-container .xterm .xterm-viewport {
+            overflow-y: auto !important; /* Enable scrolling within terminal */
+        }
+
+        .terminal-header {
+            background-color: var(--header-bg);
+            padding: 0.75rem;
+            display: flex;
+            align-items: center;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .dots { display: flex; gap: 0.5rem; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dot.red { background-color: #ff5f56; }
+        .dot.yellow { background-color: #ffbd2e; }
+        .dot.green { background-color: #27c93f; }
+        .title { color: rgba(255, 255, 255, 0.5); font-size: 0.9rem; position: absolute; left: 50%; transform: translateX(-50%); }
+
+        .terminal-window.raw-view {
+            padding: 0.5rem;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            overflow-y: auto;
+            overflow-x: auto;
+            width: 100%;
+        }
+        .raw-view .line {
+            padding: 0.1rem 0.5rem;
+            border-radius: 4px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+            max-width: 100%;
+            overflow-x: auto;
+        }
+        .raw-view .line.highlight {
+            background-color: var(--highlight-bg);
+        }
+        .raw-view .line.comment {
+            color: #9da5b3;
+            font-style: italic;
+            background-color: rgba(157, 165, 179, 0.1);
+        }
+        .terminal-screen {
+            height: 100%;
+            max-height: 70vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin: 0;
+            font-family: var(--font-family-mono);
+        }
+        
+        .controls { 
+            display: flex; 
+            align-items: center; 
+            gap: 0.75rem; 
+        }
+        .controls button { 
+            font-family: var(--font-family-sans); 
+            background-color: var(--button-bg); 
+            color: var(--fg-color); 
+            border: none; 
+            padding: 0.5rem 1rem; 
+            border-radius: 6px; 
+            font-size: 0.85rem; 
+            cursor: pointer; 
+            transition: background-color 0.2s ease; 
+            display: flex; 
+            align-items: center; 
+            gap: 0.5rem; 
+        }
+        .controls button:hover { background-color: var(--button-hover-bg); }
+        .controls button svg { width: 16px; height: 16px; }
+
+        /* Editor Panel Styles */
+        .timeline-editor {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+        .special-char-indicator {
+            width: 20px;
+            flex-shrink: 0;
+            text-align: center;
+            font-size: 1.2rem;
+            color: var(--accent-color);
+            font-family: var(--font-family-mono);
+            cursor: pointer;
+            border-radius: 4px;
+            padding: 2px;
+            transition: all 0.2s ease;
+        }
+        .special-char-indicator:hover {
+            background: var(--accent-color);
+            color: var(--header-bg);
+            transform: scale(1.1);
+        }
+        .event-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            padding: 0.5rem;
+            border-radius: 6px;
+            background: var(--bg-color);
+            cursor: pointer;
+            transition: background-color 0.2s;
+            overflow: hidden;
+            max-width: 100%;
+            border-left: 3px solid transparent;
+        }
+        
+        /* Event type specific styling */
+        .event-item[data-event-type="i"] {
+            border-left-color: #4CAF50; /* Green for input */
+            background: rgba(76, 175, 80, 0.05);
+        }
+        .event-item[data-event-type="r"] {
+            border-left-color: #FF9800; /* Orange for resize */
+            background: rgba(255, 152, 0, 0.05);
+        }
+        .event-item[data-event-type="m"] {
+            border-left-color: #2196F3; /* Blue for markers */
+            background: rgba(33, 150, 243, 0.05);
+        }
+        .event-item[data-event-type="x"] {
+            border-left-color: #F44336; /* Red for exit */
+            background: rgba(244, 67, 54, 0.05);
+        }
+        .event-item[data-event-type="o"] {
+            border-left-color: #9E9E9E; /* Gray for output */
+        }
+        .event-item.active, .event-item:hover {
+            background: #313640;
+        }
+        .event-item.active {
+            box-shadow: inset 2px 0 0 var(--accent-color);
+        }
+
+        .event-item input {
+            font-family: var(--font-family-mono);
+            background: var(--input-bg);
+            border: 1px solid var(--button-bg);
+            color: var(--fg-color);
+            border-radius: 4px;
+            padding: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .event-item input.delay-input {
+            width: 100px;
+        }
+        .event-item input.content-input {
+            flex-grow: 1;
+            max-width: 400px;
+            width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .event-item input.content-input:disabled {
+            background: var(--bg-color);
+            border-color: var(--bg-color);
+            color: #9da5b3;
+            cursor: not-allowed;
+        }
+        .event-controls {
+            display: flex;
+            gap: 0.25rem;
+            align-items: center;
+        }
+        .event-controls button {
+            background: none;
+            border: none;
+            color: #9da5b3;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+        .event-controls button:hover {
+            color: var(--fg-color);
+        }
+        .remove-btn:hover {
+            color: var(--danger-color);
+        }
+        
+        /* Event Selection Styles */
+        .select-all-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .select-all-control input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-color);
+            cursor: pointer;
+        }
+        .event-checkbox-label {
+            display: flex;
+            align-items: center;
+            margin-right: 0.5rem;
+            cursor: pointer;
+        }
+        .event-checkbox {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-color);
+            cursor: pointer;
+        }
+        .event-item:has(.event-checkbox:not(:checked)) {
+            opacity: 0.6;
+        }
+        .event-item:has(.event-checkbox:not(:checked)) .delay-input,
+        .event-item:has(.event-checkbox:not(:checked)) .content-input {
+            background: var(--controls-bg);
+        }
+        
+        .add-event-btn {
+            width: calc(100% - 2rem);
+            margin: 1rem;
+            padding: 0.75rem;
+            background: var(--button-bg);
+            border: none;
+            color: var(--fg-color);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .add-event-btn:hover {
+            background: var(--button-hover-bg);
+        }
+
+        /* Chunk Styles */
+        .chunk-container {
+            border: 1px solid var(--controls-bg);
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            background: rgba(0,0,0,0.1);
+        }
+        .chunk-header {
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            background: var(--controls-bg);
+            border-bottom: 1px solid var(--bg-color);
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .chunk-header:hover {
+            background: var(--button-hover-bg);
+        }
+        .chunk-header span {
+            font-weight: 600;
+            color: #c5c8c6;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            flex: 1;
+        }
+        .chunk-comment {
+            background: transparent;
+            border: none;
+            color: #c5c8c6;
+            font-weight: 600;
+            font-size: 0.9rem;
+            flex: 1;
+            min-width: 0;
+            padding: 0.25rem;
+            border-radius: 4px;
+        }
+        .chunk-comment:hover, .chunk-comment:focus {
+            background: var(--input-bg);
+            outline: none;
+        }
+        .chunk-toggle {
+            display: inline-flex;
+            width: 16px;
+            height: 16px;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .chunk-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+        .chunk-events {
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            overflow: hidden;
+        }
+        .chunk-events.collapsed {
+            max-height: 0;
+            opacity: 0;
+        }
+        .speed-btn {
+            background: var(--button-bg);
+            border: none;
+            color: var(--fg-color);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+        .speed-btn:hover {
+            background: var(--button-hover-bg);
+        }
+        .speed-btn.active {
+            background: var(--accent-color);
+            color: var(--header-bg);
+        }
+        .speed-btn[data-speed="2"] {
+            background: #4CAF50;
+            color: white;
+        }
+        .speed-btn[data-speed="4"] {
+            background: #FF9800;
+            color: white;
+        }
+        .speed-btn[data-speed="8"] {
+            background: #F44336;
+            color: white;
+        }
+        
+        .chunk-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .add-marker-btn, .insert-marker-btn {
+            background: var(--button-bg);
+            border: none;
+            color: var(--fg-color);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .add-marker-btn:hover, .insert-marker-btn:hover {
+            background: var(--button-hover-bg);
+        }
+        .add-marker-btn {
+            background: #2196F3;
+            color: white;
+        }
+        .insert-marker-btn {
+            background: #9C27B0;
+            color: white;
+            font-size: 0.8rem;
+            padding: 0.3rem 0.6rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="editor-layout">
+    <div class="panel">
+        <div class="panel-header">
+            <span>Timeline Editor</span>
+            <div class="file-actions">
+                <button id="uploadBtn">Upload .cast</button>
+                <button id="downloadBtn">Download .cast</button>
+                <input type="file" id="fileUploader" accept=".cast" style="display: none;">
+            </div>
+        </div>
+        <div class="cast-metadata" id="castMetadata" style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.85rem;">
+            <details>
+                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">Cast Metadata (v3)</summary>
+                <div style="display: grid; gap: 0.5rem; margin-top: 0.5rem;">
+                    <div>
+                        <label>Title: </label>
+                        <input type="text" id="castTitle" placeholder="Recording title" style="width: 200px;">
+                    </div>
+                    <div>
+                        <label>Command: </label>
+                        <input type="text" id="castCommand" placeholder="Recorded command" style="width: 200px;">
+                    </div>
+                    <div>
+                        <label>Tags: </label>
+                        <input type="text" id="castTags" placeholder="tag1, tag2, demo" style="width: 300px;">
+                        <small style="color: #888; display: block;">Comma-separated tags for categorization</small>
+                    </div>
+                </div>
+            </details>
+        </div>
+        <div class="timeline-editor" id="timelineEditor">
+            <!-- Event items will be dynamically inserted here -->
+        </div>
+        <button class="add-event-btn" id="addEventBtn">Add Event</button>
+    </div>
+    <div class="panel player-panel">
+        <div class="tab-nav">
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="preview">Preview</button>
+                <button class="tab-btn" data-tab="raw">Raw .cast</button>
+            </div>
+            <div class="controls">
+                <button id="playPauseBtn">
+                    <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>
+                    <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                    <span id="playPauseText">Play</span>
+                </button>
+                <button id="resetBtn">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg>
+                    Reset
+                </button>
+            </div>
+        </div>
+        
+        <div id="previewTab" class="tab-content active">
+            <div class="terminal-header">
+                <div class="dots"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+                <div class="title">bash (Preview)</div>
+            </div>
+            <div class="terminal-container" id="terminal-container">
+                <!-- xterm.js will attach here -->
+            </div>
+            <!-- Controls moved to tab-nav -->
+        </div>
+        
+        <div id="rawTab" class="tab-content">
+             <div class="terminal-window raw-view">
+                <pre id="raw-content" class="terminal-screen"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- DATA ---
+const initialRecordingData = {
+    header: {
+        "version": 3, 
+        "term": {
+            "cols": 179, 
+            "rows": 52
+        }, 
+        "timestamp": Math.floor(Date.now() / 1000)
+    },
+    events: [
+        [0.023447, "o", "bash-5.3$ "], [2.946602, "o", "p"], [0.083101, "o", "w"], [0.196326, "o", "d"], [0.168636, "o", "\r\n"],
+        [0.000296, "o", "/Users/mbengtss/tmp\r\n"], [0.000357, "o", "bash-5.3$ "], [1.003615, "o", "l"], [0.101223, "o", "s"], [0.326011, "o", "\r\n"],
+        [0.0098, "o", "foo\t OpenShift_Container_Platform-4.19-Multiple_networks-en-US_artifacts  win-2022-pipeline.yaml\t\t     windows-efi-installer.yaml\r\nmain.go  OpenShift_Container_Platform-4.19-Multiple_networks-en-US.md\t      windows-efi-installer-configmaps.yaml\r\n"],
+        [0.5, "o", "bash-5.3$ "],[0.2, "o", "e"], [0.12, "o", "c"], [0.11, "o", "h"], [0.13, "o", "o"], [0.15, "o", " "],[0.2, "o", "\""], [0.1, "o", "h"], [0.1, "o", "e"], [0.12, "o", "l"], [0.11, "o", "l"], [0.1, "o", "o"], [0.1, "o", "\""],[0.5, "o", "\r\n"],[0.01, "o", "hello\r\n"],[1.0, "o", "bash-5.3$ "],[0.2, "o", "e"], [0.15, "o", "x"], [0.12, "o", "i"], [0.1, "o", "t"],[0.5, "o", "\r\n"],[0.01, "o", "exit\r\n"]
+    ]
+};
+
+let recordingHeader = initialRecordingData.header;
+let recordingChunks = [];
+
+// --- DOM ELEMENTS ---
+const rawContent = document.getElementById('raw-content');
+const playPauseBtn = document.getElementById('playPauseBtn');
+const playPauseText = document.getElementById('playPauseText');
+const playIcon = document.getElementById('play-icon');
+const pauseIcon = document.getElementById('pause-icon');
+const resetBtn = document.getElementById('resetBtn');
+const timelineEditor = document.getElementById('timelineEditor');
+const addEventBtn = document.getElementById('addEventBtn');
+const uploadBtn = document.getElementById('uploadBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const fileUploader = document.getElementById('fileUploader');
+const tabNav = document.querySelector('.tab-nav');
+const terminalContainer = document.getElementById('terminal-container');
+
+// v3 metadata fields
+const castTitle = document.getElementById('castTitle');
+const castCommand = document.getElementById('castCommand');
+const castTags = document.getElementById('castTags');
+
+// --- PLAYER STATE ---
+let timeouts = [];
+let isPlaying = false;
+let currentIndex = 0;
+let playbackEvents = [];
+let term;
+let fitAddon;
+
+
+// --- EDITOR LOGIC ---
+function getFlattenedEvents() {
+    return recordingChunks.flatMap(chunk => chunk.events);
+}
+
+function groupEventsIntoChunks(events) {
+    const chunks = [];
+    if (events.length === 0) return chunks;
+
+    let currentChunk = { speed: 1, events: [], comment: null };
+
+    events.forEach(event => {
+        const data = event[2];
+        const isPromptEvent = data.includes('bash-5.3$');
+
+        if (isPromptEvent && currentChunk.events.length > 0) {
+            // Generate comment for the chunk based on content
+            currentChunk.comment = generateChunkComment(currentChunk.events, chunks.length + 1);
+            chunks.push(currentChunk);
+            currentChunk = { speed: 1, events: [], comment: null };
+        }
+
+        currentChunk.events.push(event);
+    });
+
+    if (currentChunk.events.length > 0) {
+        currentChunk.comment = generateChunkComment(currentChunk.events, chunks.length + 1);
+        chunks.push(currentChunk);
+    }
+    return chunks;
+}
+
+function generateChunkComment(events, chunkNumber) {
+    if (events.length === 0) return `# Chunk ${chunkNumber}: Empty chunk`;
+    
+    // Analyze event types in this chunk
+    const eventTypes = {};
+    const outputEvents = [];
+    const inputEvents = [];
+    const specialEvents = [];
+    
+    events.forEach(event => {
+        const [delay, type, data] = event;
+        eventTypes[type] = (eventTypes[type] || 0) + 1;
+        
+        if (type === 'o') outputEvents.push(data);
+        else if (type === 'i') inputEvents.push(data);
+        else if (type === 'r') specialEvents.push(`resize:${data}`);
+        else if (type === 'm') specialEvents.push(`marker:${data}`);
+        else if (type === 'x') specialEvents.push(`exit:${data}`);
+        else specialEvents.push(`${type}:${data}`);
+    });
+    
+    // Try to identify the main command from output events
+    const textContent = outputEvents.join('');
+    const lines = textContent.split(/\r?\n/);
+    
+    // Look for command patterns
+    let command = null;
+    for (const line of lines) {
+        const cleanLine = line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim(); // Remove ANSI codes
+        if (cleanLine.includes('bash-5.3$') && cleanLine.length > 'bash-5.3$'.length) {
+            command = cleanLine.replace('bash-5.3$', '').trim();
+            break;
+        }
+    }
+    
+    // Generate descriptive comment based on event composition
+    let description = '';
+    if (command) {
+        description = `Command - ${command}`;
+    } else if (inputEvents.length > 0) {
+        description = `Input - ${inputEvents.join('')}`;
+    } else if (specialEvents.length > 0) {
+        description = `Special - ${specialEvents.join(', ')}`;
+    } else if (textContent.includes('bash-5.3$')) {
+        description = 'Terminal prompt';
+    } else {
+        description = 'Output';
+    }
+    
+    // Add event type summary if mixed
+    const typeCount = Object.keys(eventTypes).length;
+    if (typeCount > 1) {
+        const typeSummary = Object.entries(eventTypes)
+            .map(([type, count]) => `${type}:${count}`)
+            .join(', ');
+        description += ` (${typeSummary})`;
+    }
+    
+    return `# Chunk ${chunkNumber}: ${description}`;
+}
+
+function renderTimeline() {
+    timelineEditor.innerHTML = '';
+    let globalEventIndex = 0;
+    recordingChunks.forEach((chunk, chunkIndex) => {
+        const chunkContainer = document.createElement('div');
+        chunkContainer.className = 'chunk-container';
+        
+        const chunkHeader = document.createElement('div');
+        chunkHeader.className = 'chunk-header';
+        const commentText = chunk.comment ? chunk.comment.replace(/^#\s*/, '') : `Chunk ${chunkIndex + 1}`;
+        chunkHeader.innerHTML = `
+            <span><span class="chunk-toggle">▼</span><input type="text" class="chunk-comment" value="${escapeHtml(commentText)}" data-chunk-index="${chunkIndex}" placeholder="Chunk ${chunkIndex + 1}"></span>
+            <div class="chunk-controls">
+                <label class="select-all-control">
+                    <input type="checkbox" class="select-all-checkbox" data-chunk-index="${chunkIndex}" checked>
+                    <span>Select All</span>
+                </label>
+                <button class="speed-btn" data-chunk-index="${chunkIndex}" data-speed="${chunk.speed}">Speed Up ${chunk.speed}x</button>
+                <button class="add-marker-btn" data-chunk-index="${chunkIndex}">📍 Add Marker</button>
+            </div>
+        `;
+        chunkContainer.appendChild(chunkHeader);
+
+        const chunkEvents = document.createElement('div');
+        chunkEvents.className = 'chunk-events';
+        chunkContainer.appendChild(chunkEvents);
+
+        chunk.events.forEach((event, eventIndex) => {
+            const [delay, eventType, data] = event;
+            
+            // Detect event type based on asciinema v3 specification
+            // eventType is already extracted from event[1] above            // Output event ('o') - terminal output
+            const isOutputEvent = eventType === 'o';
+            
+            // Input event ('i') - user input 
+            const isInputEvent = eventType === 'i';
+            
+            // Resize event ('r') - terminal resize
+            const isResizeEvent = eventType === 'r';
+            
+            // Marker event ('m') - bookmarks/annotations
+            const isMarkerEvent = eventType === 'm';
+            
+            // Exit event ('x') - process exit
+            const isExitEvent = eventType === 'x';
+            
+            // Custom/other event types
+            const isOtherEvent = !['o', 'i', 'r', 'm', 'x'].includes(eventType);
+            
+            // For output events, detect special characters
+            const hasNewLine = isOutputEvent && (data.includes('\r') || data.includes('\n'));
+            const isCursorOrEraseCode = isOutputEvent && /\u001b\[\d*[A-DK]/.test(data);
+            const isEnterEvent = isOutputEvent && hasNewLine && !isCursorOrEraseCode;
+            const isBackspaceEvent = isOutputEvent && data.includes('\b');
+            const isBellEvent = isOutputEvent && data.includes('\u0007'); // ASCII Bell character
+            const isTabEvent = isOutputEvent && data.includes('\t'); // Tab character
+            const sanitizedData = sanitizeAnsiCodes(data);
+            const isControlCodeEvent = isOutputEvent && !isEnterEvent && !isBackspaceEvent && !isBellEvent && !isTabEvent && sanitizedData.trim() === '' && data.trim() !== '';
+
+            const item = document.createElement('div');
+            item.className = `event-item`;
+            item.dataset.globalIndex = globalEventIndex;
+            item.dataset.eventType = eventType; // Add event type for CSS styling
+            
+            let contentValue = escapeHtml(sanitizedData);
+            let inputProperties = '';
+
+            // Handle different event types
+            if (isInputEvent) {
+                contentValue = escapeHtml(data);
+                inputProperties = 'placeholder="User Input"';
+            } else if (isResizeEvent) {
+                contentValue = data; // e.g., "80x24"
+                inputProperties = 'placeholder="Terminal Size" disabled';
+            } else if (isMarkerEvent) {
+                contentValue = escapeHtml(data);
+                inputProperties = 'placeholder="Marker/Annotation"';
+            } else if (isExitEvent) {
+                contentValue = data; // exit code
+                inputProperties = 'placeholder="Exit Code" disabled';
+            } else if (isOtherEvent) {
+                contentValue = escapeHtml(data);
+                inputProperties = `placeholder="Event Type: ${eventType}"`;
+            } else if (isOutputEvent) {
+                // Handle output event special cases
+                if (isEnterEvent) {
+                    contentValue = '';
+                    inputProperties = 'placeholder="Enter Key" disabled';
+                } else if (isBackspaceEvent) {
+                    contentValue = '';
+                    inputProperties = 'placeholder="Backspace" disabled';
+                } else if (isBellEvent) {
+                    contentValue = '';
+                    inputProperties = 'placeholder="Bell Character" disabled';
+                } else if (isTabEvent) {
+                    contentValue = '';
+                    inputProperties = 'placeholder="Tab Character" disabled';
+                } else if (isControlCodeEvent) {
+                    contentValue = '';
+                    inputProperties = 'placeholder="Control Code" disabled';
+                } else {
+                    contentValue = escapeHtml(sanitizedData);
+                    inputProperties = 'placeholder="Terminal Output"';
+                }
+            }
+
+            item.innerHTML = `
+                <label class="event-checkbox-label">
+                    <input type="checkbox" class="event-checkbox" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" checked>
+                </label>
+                <span class="special-char-indicator"></span>
+                <input type="number" class="delay-input" value="${delay.toFixed(6)}" step="0.000001" min="0" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
+                <input type="text" class="content-input" value="${contentValue}" ${inputProperties} data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
+                <div class="event-controls">
+                    <button class="insert-marker-btn" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Insert Marker After This Event">📍</button>
+                    <button class="remove-btn" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Remove Event"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+                </div>
+            `;
+            
+            const indicator = item.querySelector('.special-char-indicator');
+            
+            // Set indicators based on event type
+            if (isInputEvent) { 
+                indicator.textContent = '⌨️'; 
+                indicator.title = 'User Input Event'; 
+            } else if (isResizeEvent) { 
+                indicator.textContent = '↔️'; 
+                indicator.title = `Terminal Resize: ${data}`; 
+            } else if (isMarkerEvent) { 
+                indicator.textContent = '📍'; 
+                indicator.title = `Marker: ${data}`; 
+            } else if (isExitEvent) { 
+                indicator.textContent = '🚪'; 
+                indicator.title = `Process Exit (code: ${data})`; 
+            } else if (isOtherEvent) { 
+                indicator.textContent = '❓'; 
+                indicator.title = `Custom Event Type: ${eventType}`; 
+            } else if (isOutputEvent) {
+                // Handle output event special cases
+                if (isEnterEvent) { 
+                    indicator.textContent = '⏎'; 
+                    indicator.title = 'Enter Key'; 
+                } else if (isBackspaceEvent) { 
+                    indicator.textContent = '⌫'; 
+                    indicator.title = 'Backspace'; 
+                } else if (isBellEvent) { 
+                    indicator.textContent = '🔔'; 
+                    indicator.title = 'Bell Character (\\u0007)'; 
+                } else if (isTabEvent) { 
+                    indicator.textContent = '⇥'; 
+                    indicator.title = 'Tab Character'; 
+                } else if (isControlCodeEvent) { 
+                    indicator.textContent = '⌘'; 
+                    indicator.title = 'Control Code'; 
+                } else {
+                    indicator.textContent = '📺'; 
+                    indicator.title = 'Terminal Output'; 
+                }
+            }
+            chunkEvents.appendChild(item);
+            globalEventIndex++;
+        });
+
+        timelineEditor.appendChild(chunkContainer);
+    });
+}
+
+function updateDataFromUI(chunkIndex, eventIndex, field, value) {
+    const event = recordingChunks[chunkIndex].events[eventIndex];
+    if (field === 'delay') {
+        event[0] = parseFloat(value);
+    } else if (field === 'content') {
+        event[2] = value;
+    }
+    playbackEvents = getFlattenedEvents();
+}
+
+function sanitizeAnsiCodes(data) {
+    return data.replace(/\u001b\[[()#;?]*.*?[a-zA-Z]/g, '');
+}
+
+function escapeHtml(unsafe) {
+    return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
+
+// --- PLAYER LOGIC ---
+function updateActiveEventMarker() {
+    document.querySelectorAll('.event-item.active').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.raw-view .line.highlight').forEach(el => el.classList.remove('highlight'));
+    if (currentIndex > 0 && currentIndex <= playbackEvents.length) {
+        const activeEventItem = document.querySelector(`.event-item[data-global-index="${currentIndex - 1}"]`);
+        if (activeEventItem) {
+            activeEventItem.classList.add('active');
+        }
+        const activeRawLine = document.querySelector(`.raw-view .line[data-line-index="${currentIndex - 1}"]`);
+        if(activeRawLine) {
+            activeRawLine.classList.add('highlight');
+            activeRawLine.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+}
+
+function renderRawView() {
+    let content = '';
+    let lineIndex = 0;
+    let eventIndex = 0; // Separate counter for events only
+    
+    recordingChunks.forEach((chunk, chunkIndex) => {
+        // Add chunk comment
+        if (chunk.comment) {
+            content += `<div class="line comment" data-line-index="${lineIndex}">${escapeHtml(chunk.comment)}</div>`;
+            lineIndex++;
+        }
+        
+        // Add chunk events
+        chunk.events.forEach(event => {
+            // Use eventIndex for event lines to match timeline tracking
+            content += `<div class="line" data-line-index="${eventIndex}">${escapeHtml(JSON.stringify(event))}</div>`;
+            lineIndex++;
+            eventIndex++;
+        });
+    });
+    
+    rawContent.innerHTML = content;
+}
+
+
+function play() {
+    isPlaying = true;
+    playbackEvents = getFlattenedEvents();
+    updateButtonUI();
+    
+    function scheduleNextFrame() {
+        if (!isPlaying || currentIndex >= playbackEvents.length) {
+            pause();
+            return;
+        }
+
+        const [delay, eventType, data] = playbackEvents[currentIndex];
+
+        const timeoutId = setTimeout(() => {
+            // Handle different event types during playback
+            if (eventType === 'o') {
+                // Output event - write to terminal
+                term.write(data);
+            } else if (eventType === 'r') {
+                // Resize event - resize terminal
+                try {
+                    const [cols, rows] = data.split('x').map(Number);
+                    if (cols && rows && fitAddon) {
+                        term.resize(cols, rows);
+                        setTimeout(() => fitAddon.fit(), 10);
+                    }
+                } catch (e) {
+                    console.warn('Invalid resize data:', data);
+                }
+            } else if (eventType === 'i') {
+                // Input event - could be displayed differently or logged
+                console.log('Input event:', data);
+                // For now, don't write input events to terminal output
+            } else if (eventType === 'm') {
+                // Marker event - could trigger UI indicator
+                console.log('Marker:', data);
+            } else if (eventType === 'x') {
+                // Exit event - could show exit status
+                console.log('Process exit:', data);
+            } else {
+                // Other/custom event types - log for debugging
+                console.log(`Event ${eventType}:`, data);
+            }
+            
+            currentIndex++;
+            updateActiveEventMarker();
+            scheduleNextFrame();
+        }, delay * 1000);
+        timeouts.push(timeoutId);
+    }
+    scheduleNextFrame();
+}
+
+function updateButtonUI() {
+    if (isPlaying) {
+        playPauseText.textContent = 'Pause';
+        playIcon.style.display = 'none';
+        pauseIcon.style.display = 'inline-block';
+    } else {
+        playPauseText.textContent = 'Play';
+        playIcon.style.display = 'inline-block';
+        pauseIcon.style.display = 'none';
+    }
+}
+
+function pause() {
+    isPlaying = false;
+    timeouts.forEach(clearTimeout);
+    timeouts = [];
+    updateButtonUI();
+}
+
+function reset() {
+    pause();
+    currentIndex = 0;
+    term.clear();
+    renderRawView();
+    updateButtonUI();
+    updateActiveEventMarker();
+}
+
+function seekTo(globalIndex) {
+    if (isPlaying) return;
+    pause();
+    
+    playbackEvents = getFlattenedEvents();
+    if(globalIndex >= playbackEvents.length) return;
+
+    currentIndex = globalIndex;
+    term.clear();
+
+    for (let i = 0; i < currentIndex; i++) {
+        term.write(playbackEvents[i][2]);
+    }
+    
+    updateButtonUI();
+    updateActiveEventMarker();
+}
+
+// --- EVENT LISTENERS ---
+playPauseBtn.addEventListener('click', () => isPlaying ? pause() : play());
+resetBtn.addEventListener('click', reset);
+
+timelineEditor.addEventListener('change', (e) => {
+    const target = e.target;
+    const chunkIndex = parseInt(target.dataset.chunkIndex, 10);
+    const eventIndex = parseInt(target.dataset.eventIndex, 10);
+
+    if (target.classList.contains('delay-input')) {
+        updateDataFromUI(chunkIndex, eventIndex, 'delay', target.value);
+    } else if (target.classList.contains('content-input')) {
+        updateDataFromUI(chunkIndex, eventIndex, 'content', target.value);
+    } else if (target.classList.contains('chunk-comment')) {
+        // Update chunk comment
+        if (!isNaN(chunkIndex) && chunkIndex < recordingChunks.length) {
+            const commentValue = target.value.trim();
+            recordingChunks[chunkIndex].comment = commentValue ? `# ${commentValue}` : null;
+            renderRawView(); // Update raw view to reflect comment changes
+        }
+    }
+});
+
+timelineEditor.addEventListener('click', (e) => {
+    const item = e.target.closest('.event-item');
+    if (item && item.dataset.globalIndex) {
+        seekTo(parseInt(item.dataset.globalIndex, 10) + 1);
+    }
+    
+    const removeBtn = e.target.closest('.remove-btn');
+    if (removeBtn) {
+        const chunkIndex = parseInt(removeBtn.dataset.chunkIndex, 10);
+        const eventIndex = parseInt(removeBtn.dataset.eventIndex, 10);
+        recordingChunks[chunkIndex].events.splice(eventIndex, 1);
+        renderTimeline();
+        playbackEvents = getFlattenedEvents();
+    }
+    
+    const speedBtn = e.target.closest('.speed-btn');
+    if(speedBtn) {
+        const chunkIndex = parseInt(speedBtn.dataset.chunkIndex, 10);
+        const chunk = recordingChunks[chunkIndex];
+        
+        // Save current checkbox states for this chunk before any modifications
+        const checkboxStates = {};
+        const chunkEventCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
+        chunkEventCheckboxes.forEach((checkbox, index) => {
+            checkboxStates[index] = checkbox.checked;
+        });
+        
+        // Get selected events for this chunk
+        const selectedEventIndices = [];
+        chunkEventCheckboxes.forEach((checkbox, index) => {
+            if (checkbox.checked) {
+                selectedEventIndices.push(index);
+            }
+        });
+        
+        // If no events are selected, do nothing
+        if (selectedEventIndices.length === 0) {
+            return;
+        }
+        
+        // Cycle through speeds: 1x -> 2x -> 4x -> 8x -> 1x
+        const speedCycle = [1, 2, 4, 8];
+        const currentSpeedIndex = speedCycle.indexOf(chunk.speed);
+        const newSpeed = speedCycle[(currentSpeedIndex + 1) % speedCycle.length];
+        
+        // Apply speed change only to selected events
+        const speedFactor = newSpeed / chunk.speed;
+        selectedEventIndices.forEach(eventIndex => {
+            if (chunk.events[eventIndex]) {
+                chunk.events[eventIndex][0] = chunk.events[eventIndex][0] / speedFactor; // Divide delay by speed factor
+            }
+        });
+        
+        chunk.speed = newSpeed;
+        speedBtn.textContent = `Speed Up ${chunk.speed}x`;
+        speedBtn.setAttribute('data-speed', chunk.speed);
+        speedBtn.classList.toggle('active', chunk.speed > 1);
+        
+        // Update only the timing values in the UI without full re-render to preserve checkbox states
+        selectedEventIndices.forEach(eventIndex => {
+            const delayInput = document.querySelector(`input.delay-input[data-chunk-index="${chunkIndex}"][data-event-index="${eventIndex}"]`);
+            if (delayInput && chunk.events[eventIndex]) {
+                delayInput.value = chunk.events[eventIndex][0].toFixed(6);
+            }
+        });
+        
+        // Restore checkbox states after updating delay inputs
+        setTimeout(() => {
+            const updatedCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
+            updatedCheckboxes.forEach((checkbox, index) => {
+                if (checkboxStates.hasOwnProperty(index)) {
+                    checkbox.checked = checkboxStates[index];
+                }
+            });
+            
+            // Update select-all checkbox state
+            const selectAllCheckbox = document.querySelector(`.select-all-checkbox[data-chunk-index="${chunkIndex}"]`);
+            if (selectAllCheckbox) {
+                const checkedCount = Object.values(checkboxStates).filter(checked => checked).length;
+                const totalCount = Object.keys(checkboxStates).length;
+                
+                if (checkedCount === 0) {
+                    selectAllCheckbox.checked = false;
+                    selectAllCheckbox.indeterminate = false;
+                } else if (checkedCount === totalCount) {
+                    selectAllCheckbox.checked = true;
+                    selectAllCheckbox.indeterminate = false;
+                } else {
+                    selectAllCheckbox.checked = false;
+                    selectAllCheckbox.indeterminate = true;
+                }
+            }
+        }, 50);
+        
+        // Update playback events and raw view
+        playbackEvents = getFlattenedEvents();
+        renderRawView();
+        
+        // If currently playing, restart from current position to apply speed changes
+        if (isPlaying) {
+            const wasPlaying = isPlaying;
+            const currentPos = currentIndex;
+            pause();
+            currentIndex = currentPos;
+            if (wasPlaying) {
+                play();
+            }
+        }
+    }
+    
+    // Handle "Add Marker" button clicks for chunks
+    const addMarkerBtn = e.target.closest('.add-marker-btn');
+    if (addMarkerBtn) {
+        const chunkIndex = parseInt(addMarkerBtn.dataset.chunkIndex, 10);
+        const chunk = recordingChunks[chunkIndex];
+        
+        // Add marker at the beginning of the chunk
+        const markerEvent = [0.1, "m", `Marker for Chunk ${chunkIndex + 1}`];
+        chunk.events.unshift(markerEvent);
+        
+        renderTimeline();
+        playbackEvents = getFlattenedEvents();
+        renderRawView();
+    }
+    
+    // Handle "Insert Marker" button clicks for individual events
+    const insertMarkerBtn = e.target.closest('.insert-marker-btn');
+    if (insertMarkerBtn) {
+        const chunkIndex = parseInt(insertMarkerBtn.dataset.chunkIndex, 10);
+        const eventIndex = parseInt(insertMarkerBtn.dataset.eventIndex, 10);
+        const chunk = recordingChunks[chunkIndex];
+        
+        // Insert marker after the selected event
+        const markerEvent = [0.1, "m", `Marker after event ${eventIndex + 1}`];
+        chunk.events.splice(eventIndex + 1, 0, markerEvent);
+        
+        renderTimeline();
+        playbackEvents = getFlattenedEvents();
+        renderRawView();
+    }
+    
+    // Handle select all checkbox
+    const selectAllCheckbox = e.target.closest('.select-all-checkbox');
+    if (selectAllCheckbox) {
+        const chunkIndex = parseInt(selectAllCheckbox.dataset.chunkIndex, 10);
+        const isChecked = selectAllCheckbox.checked;
+        
+        // Update all event checkboxes in this chunk
+        const eventCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
+        eventCheckboxes.forEach(checkbox => {
+            checkbox.checked = isChecked;
+        });
+        return;
+    }
+    
+    // Handle individual event checkbox changes
+    const eventCheckbox = e.target.closest('.event-checkbox');
+    if (eventCheckbox) {
+        const chunkIndex = parseInt(eventCheckbox.dataset.chunkIndex, 10);
+        
+        // Update select all checkbox state
+        const eventCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
+        const checkedCount = Array.from(eventCheckboxes).filter(cb => cb.checked).length;
+        const selectAll = document.querySelector(`.select-all-checkbox[data-chunk-index="${chunkIndex}"]`);
+        
+        if (selectAll) {
+            selectAll.checked = checkedCount === eventCheckboxes.length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < eventCheckboxes.length;
+        }
+        return;
+    }
+
+    const chunkHeader = e.target.closest('.chunk-header');
+    if (chunkHeader && !e.target.closest('.speed-btn') && !e.target.closest('.add-marker-btn') && !e.target.closest('.select-all-control')) {
+        const chunkEvents = chunkHeader.nextElementSibling;
+        const toggle = chunkHeader.querySelector('.chunk-toggle');
+        const isCollapsed = chunkEvents.classList.contains('collapsed');
+        
+        if (isCollapsed) {
+            chunkEvents.classList.remove('collapsed');
+            toggle.classList.remove('collapsed');
+            toggle.textContent = '▼';
+        } else {
+            chunkEvents.classList.add('collapsed');
+            toggle.classList.add('collapsed');
+            toggle.textContent = '▶';
+        }
+    }
+});
+
+
+addEventBtn.addEventListener('click', () => {
+    if (recordingChunks.length > 0) {
+        recordingChunks[recordingChunks.length - 1].events.push([0.1, "o", ""]);
+        renderTimeline();
+        timelineEditor.scrollTop = timelineEditor.scrollHeight;
+    }
+});
+
+uploadBtn.addEventListener('click', () => fileUploader.click());
+fileUploader.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const lines = event.target.result.split('\n');
+            const uploadedHeader = JSON.parse(lines[0]);
+            
+            // Preserve all metadata from the uploaded header
+            recordingHeader = { ...uploadedHeader };
+            console.log('Uploaded header preserved:', recordingHeader);
+            
+            // Load metadata into form fields
+            loadMetadataToForm();
+            
+            // Parse events and comments (v3 format support)
+            const events = [];
+            const comments = [];
+            let currentComment = null;
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                if (line.startsWith('#')) {
+                    // This is a comment
+                    currentComment = line;
+                    comments.push({index: events.length, comment: line});
+                } else {
+                    // This is an event
+                    try {
+                        events.push(JSON.parse(line));
+                    } catch (e) {
+                        console.warn('Failed to parse line:', line);
+                    }
+                }
+            }
+            
+            recordingChunks = groupEventsIntoChunks(events);
+            
+            // Apply preserved comments to chunks where possible
+            comments.forEach(commentData => {
+                const chunkIndex = findChunkForEventIndex(commentData.index);
+                if (chunkIndex >= 0 && chunkIndex < recordingChunks.length) {
+                    recordingChunks[chunkIndex].comment = commentData.comment;
+                }
+            });
+            
+            // Handle both v3 format (term.cols/term.rows) and legacy formats
+            const cols = parseInt(recordingHeader.term?.cols || recordingHeader.width, 10);
+            const rows = parseInt(recordingHeader.term?.rows || recordingHeader.rows || recordingHeader.height, 10);
+
+            if (!isNaN(cols) && !isNaN(rows)) {
+                term.resize(cols, rows);
+            }
+            fitAddon.fit();
+            
+            renderTimeline();
+            reset();
+        };
+        reader.readAsText(file);
+    }
+});
+
+function findChunkForEventIndex(eventIndex) {
+    let currentIndex = 0;
+    for (let i = 0; i < recordingChunks.length; i++) {
+        if (eventIndex >= currentIndex && eventIndex < currentIndex + recordingChunks[i].events.length) {
+            return i;
+        }
+        currentIndex += recordingChunks[i].events.length;
+    }
+    return -1;
+}
+
+downloadBtn.addEventListener('click', () => {
+    // Save metadata from form before downloading
+    saveMetadataFromForm();
+    
+    // Ensure v3 compliant header structure
+    let downloadHeader = { ...recordingHeader };
+    
+    // Migrate legacy format to v3 if needed
+    if (downloadHeader.width || downloadHeader.height) {
+        if (!downloadHeader.term) {
+            downloadHeader.term = {};
+        }
+        if (downloadHeader.width && !downloadHeader.term.cols) {
+            downloadHeader.term.cols = downloadHeader.width;
+            delete downloadHeader.width;
+        }
+        if (downloadHeader.height && !downloadHeader.term.rows) {
+            downloadHeader.term.rows = downloadHeader.height;
+            delete downloadHeader.height;
+        }
+        if (downloadHeader.rows && !downloadHeader.term.rows) {
+            downloadHeader.term.rows = downloadHeader.rows;
+            delete downloadHeader.rows;
+        }
+    }
+    
+    // Ensure required v3 fields
+    if (!downloadHeader.version) downloadHeader.version = 3;
+    if (!downloadHeader.term) downloadHeader.term = { cols: 80, rows: 24 };
+    if (!downloadHeader.term.cols) downloadHeader.term.cols = 80;
+    if (!downloadHeader.term.rows) downloadHeader.term.rows = 24;
+    
+    console.log('Download header (v3 compliant):', downloadHeader);
+    const headerLine = JSON.stringify(downloadHeader);
+    let content = headerLine + '\n';
+    
+    // Add chunks with comments in v3 format
+    recordingChunks.forEach(chunk => {
+        if (chunk.comment) {
+            content += chunk.comment + '\n';
+        }
+        chunk.events.forEach(event => {
+            content += JSON.stringify(event) + '\n';
+        });
+    });
+    
+    const blob = new Blob([content], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'edited-recording.cast';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});
+
+// --- METADATA FUNCTIONS ---
+function loadMetadataToForm() {
+    if (recordingHeader.title) {
+        castTitle.value = recordingHeader.title;
+    }
+    if (recordingHeader.command) {
+        castCommand.value = recordingHeader.command;
+    }
+    if (recordingHeader.tags) {
+        if (Array.isArray(recordingHeader.tags)) {
+            castTags.value = recordingHeader.tags.join(', ');
+        } else {
+            castTags.value = recordingHeader.tags;
+        }
+    }
+}
+
+function saveMetadataFromForm() {
+    // Update header with form values
+    if (castTitle.value.trim()) {
+        recordingHeader.title = castTitle.value.trim();
+    } else {
+        delete recordingHeader.title;
+    }
+    
+    if (castCommand.value.trim()) {
+        recordingHeader.command = castCommand.value.trim();
+    } else {
+        delete recordingHeader.command;
+    }
+    
+    if (castTags.value.trim()) {
+        // Convert comma-separated string to array
+        recordingHeader.tags = castTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
+    } else {
+        delete recordingHeader.tags;
+    }
+}
+
+tabNav.addEventListener('click', (e) => {
+    const tabButton = e.target.closest('.tab-btn');
+    if(tabButton) {
+        const tabId = tabButton.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+        tabButton.classList.add('active');
+        document.getElementById(`${tabId}Tab`).classList.add('active');
+        // Fit the terminal when its tab becomes visible
+        if (tabId === 'preview' && fitAddon && term) {
+            // Use a timeout to ensure the container has its final dimensions
+            setTimeout(() => {
+                fitAddon.fit();
+                // Double-check after a bit more time for complex layouts
+                setTimeout(() => fitAddon.fit(), 200);
+            }, 50);
+        }
+    }
+});
+
+// --- INITIALIZATION ---
+function initialize() {
+    // Get theme from v3 header if available
+    const headerTheme = recordingHeader.term?.theme;
+    let terminalTheme = {
+        background: '#282c34',
+        foreground: '#abb2bf',
+        cursor: '#e06c75',
+        selectionBackground: '#5c6370',
+        black: '#282c34',
+        red: '#e06c75',
+        green: '#98c379',
+        yellow: '#e5c07b',
+        blue: '#61afef',
+        magenta: '#c678dd',
+        cyan: '#56b6c2',
+        white: '#abb2bf',
+        brightBlack: '#5c6370',
+        brightRed: '#e06c75',
+        brightGreen: '#98c379',
+        brightYellow: '#e5c07b',
+        brightBlue: '#61afef',
+        brightMagenta: '#c678dd',
+        brightCyan: '#56b6c2',
+        brightWhite: '#ffffff'
+    };
+    
+    // Apply v3 theme if present
+    if (headerTheme) {
+        if (headerTheme.fg) terminalTheme.foreground = headerTheme.fg;
+        if (headerTheme.bg) terminalTheme.background = headerTheme.bg;
+        
+        // Parse palette colors if present
+        if (headerTheme.palette) {
+            const colors = headerTheme.palette.split(':');
+            if (colors.length >= 8) {
+                terminalTheme.black = colors[0] || terminalTheme.black;
+                terminalTheme.red = colors[1] || terminalTheme.red;
+                terminalTheme.green = colors[2] || terminalTheme.green;
+                terminalTheme.yellow = colors[3] || terminalTheme.yellow;
+                terminalTheme.blue = colors[4] || terminalTheme.blue;
+                terminalTheme.magenta = colors[5] || terminalTheme.magenta;
+                terminalTheme.cyan = colors[6] || terminalTheme.cyan;
+                terminalTheme.white = colors[7] || terminalTheme.white;
+                
+                // Bright colors (if 16-color palette)
+                if (colors.length >= 16) {
+                    terminalTheme.brightBlack = colors[8] || terminalTheme.brightBlack;
+                    terminalTheme.brightRed = colors[9] || terminalTheme.brightRed;
+                    terminalTheme.brightGreen = colors[10] || terminalTheme.brightGreen;
+                    terminalTheme.brightYellow = colors[11] || terminalTheme.brightYellow;
+                    terminalTheme.brightBlue = colors[12] || terminalTheme.brightBlue;
+                    terminalTheme.brightMagenta = colors[13] || terminalTheme.brightMagenta;
+                    terminalTheme.brightCyan = colors[14] || terminalTheme.brightCyan;
+                    terminalTheme.brightWhite = colors[15] || terminalTheme.brightWhite;
+                }
+            }
+        }
+    }
+
+    term = new Terminal({
+        cursorBlink: true,
+        // Don't set fixed rows/cols, let FitAddon handle sizing
+        fontFamily: "'Fira Code', monospace",
+        fontSize: 14,
+        scrollback: 1000, // Limit scrollback for better performance
+        convertEol: true, // Handle line endings properly
+        theme: terminalTheme
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(terminalContainer);
+    
+    // Fit the terminal after it's opened and the container has dimensions
+    setTimeout(() => {
+        fitAddon.fit();
+    }, 100);
+    
+    // Debounced resize handler for better performance
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (fitAddon && term) {
+                fitAddon.fit();
+            }
+        }, 100);
+    });
+
+    recordingChunks = groupEventsIntoChunks(initialRecordingData.events);
+    playbackEvents = getFlattenedEvents();
+    renderTimeline();
+    renderRawView();
+    reset();
+}
+
+// --- METADATA EVENT LISTENERS ---
+castTitle.addEventListener('input', saveMetadataFromForm);
+castCommand.addEventListener('input', saveMetadataFromForm);
+castTags.addEventListener('input', saveMetadataFromForm);
+
+initialize();
+
+</script>
+</body>
+</html>
+
+
