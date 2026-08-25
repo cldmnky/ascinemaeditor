@@ -50,6 +50,9 @@ task dev
 
 # Clean build artifacts
 task clean
+
+# Stop a running server
+task stop
 ```
 
 ### Alternative: Using Go directly

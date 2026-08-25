@@ -49,6 +49,18 @@ tasks:
     cmds:
       - rm -rf {{.BIN_DIR}}
 
+  stop:
+    desc: Stop any running editor server on port {{.PORT}}
+    cmds:
+      - |
+        pids=$(lsof -ti tcp:{{.PORT}} -sTCP:LISTEN || true)
+        if [ -n "$pids" ]; then
+          kill $pids
+          echo "Stopped server on port {{.PORT}} (pid $pids)"
+        else
+          echo "Nothing running on port {{.PORT}}"
+        fi
+
   serve:
     desc: Build and serve the application
     deps: [build]
