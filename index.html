@@ -527,6 +527,28 @@
             font-size: 0.8rem;
             padding: 0.3rem 0.6rem;
         }
+
+        .toast-container {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 1000;
+        }
+        .toast {
+            background: var(--danger-color);
+            color: #fff;
+            padding: 0.6rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            box-shadow: 0 5px 20px var(--shadow-color);
+            max-width: 360px;
+        }
+        .toast.info {
+            background: #3a7ca5;
+        }
     </style>
 </head>
 <body>
@@ -557,6 +579,11 @@
                         <label>Tags: </label>
                         <input type="text" id="castTags" placeholder="tag1, tag2, demo" style="width: 300px;">
                         <small style="color: #888; display: block;">Comma-separated tags for categorization</small>
+                    </div>
+                    <div>
+                        <label>Prompt: </label>
+                        <input type="text" id="promptPatternInput" placeholder="$ (default)" style="width: 200px;">
+                        <small style="color: #888; display: block;">Text that marks a shell prompt (e.g. <code>$</code> or <code>assets&gt;</code>). Used to split the timeline into chunks.</small>
                     </div>
                 </div>
             </details>
@@ -645,6 +672,72 @@ const terminalContainer = document.getElementById('terminal-container');
 const castTitle = document.getElementById('castTitle');
 const castCommand = document.getElementById('castCommand');
 const castTags = document.getElementById('castTags');
+const promptPatternInput = document.getElementById('promptPatternInput');
+
+// --- LIMITS & USER FEEDBACK ---
+const MAX_EVENTS = 100000;
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
+function showStatus(message, isError = true) {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = isError ? 'toast' : 'toast info';
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
+
+// --- PROMPT DETECTION ---
+// The prompt pattern is plain text that marks a shell prompt in terminal
+// output ("$" by default; e.g. "assets>" for custom shells). It may be
+// followed by spaces and/or ANSI color reset sequences.
+let promptPattern = '';
+try { promptPattern = localStorage.getItem('ascinemaeditor.promptPattern') || ''; } catch (e) {}
+
+function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function promptCoreSource() {
+    const pattern = String(promptPattern ?? '').trim();
+    return pattern === '' ? '\\$' : escapeRegExp(pattern);
+}
+
+function buildPromptRegex() {
+    return new RegExp(promptCoreSource() + '\\s*(?:\\x1b\\[[\\d;]*m)*\\s*$');
+}
+
+let promptRegex = buildPromptRegex();
+
+function isPromptOutput(data) {
+    return promptRegex.test(String(data));
+}
+
+function rechunkWithCurrentPrompt() {
+    // Regroup events with the current prompt pattern while preserving any
+    // comments already attached to chunks (matched by their first event).
+    const previousChunks = recordingChunks;
+    recordingChunks = groupEventsIntoChunks(getFlattenedEvents());
+    const commentByFirstEvent = new Map();
+    previousChunks.forEach(chunk => {
+        if (chunk.events.length > 0 && chunk.comment != null) {
+            commentByFirstEvent.set(JSON.stringify(chunk.events[0]), chunk.comment);
+        }
+    });
+    recordingChunks.forEach(chunk => {
+        if (chunk.events.length === 0) return;
+        const key = JSON.stringify(chunk.events[0]);
+        if (commentByFirstEvent.has(key)) chunk.comment = commentByFirstEvent.get(key);
+    });
+    playbackEvents = getFlattenedEvents();
+    renderTimeline();
+    renderRawView();
+}
 
 // --- PLAYER STATE ---
 let timeouts = [];
@@ -664,13 +757,13 @@ function groupEventsIntoChunks(events) {
     const chunks = [];
     if (events.length === 0) return chunks;
 
-    let currentChunk = { speed: 1, events: [], comment: null };
+    let currentChunk = { speed: 1, events: [], comment: null, extraLeading: [], trailingComments: [] };
 
     events.forEach(event => {
         const data = event[2];
-        // Detect shell prompts ending with "$ " including those with ANSI escape sequences
-        // This regex matches: any text ending with "$ " (including ANSI sequences after the $)
-        const isPromptEvent = /\$(\s|\x1b\[[\d;]*m|\s*$)/.test(data);
+        // Detect shell prompts: the configured prompt pattern followed only by
+        // spaces and/or ANSI color reset sequences until the end of the output
+        const isPromptEvent = isPromptOutput(data);
 
         if (isPromptEvent && currentChunk.events.length > 0) {
             // Generate comment for the chunk based on content
@@ -716,10 +809,12 @@ function generateChunkComment(events, chunkNumber) {
     
     // Look for command patterns
     let command = null;
+    const promptInLine = new RegExp(promptCoreSource());
     for (const line of lines) {
         const cleanLine = line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim(); // Remove ANSI codes
-        if (cleanLine.includes('bash-5.3$') && cleanLine.length > 'bash-5.3$'.length) {
-            command = cleanLine.replace('bash-5.3$', '').trim();
+        const match = cleanLine.match(promptInLine);
+        if (match && match[0].length < cleanLine.length) {
+            command = cleanLine.slice(match.index + match[0].length).trim();
             break;
         }
     }
@@ -732,7 +827,7 @@ function generateChunkComment(events, chunkNumber) {
         description = `Input - ${inputEvents.join('')}`;
     } else if (specialEvents.length > 0) {
         description = `Special - ${specialEvents.join(', ')}`;
-    } else if (textContent.includes('bash-5.3$')) {
+    } else if (new RegExp(promptCoreSource()).test(textContent)) {
         description = 'Terminal prompt';
     } else {
         description = 'Output';
@@ -779,6 +874,7 @@ function renderTimeline() {
 
         chunk.events.forEach((event, eventIndex) => {
             const [delay, eventType, data] = event;
+            const delayValue = Number.isFinite(delay) ? delay : 0;
             
             // Detect event type based on asciinema v3 specification
             // eventType is already extracted from event[1] above            // Output event ('o') - terminal output
@@ -799,15 +895,19 @@ function renderTimeline() {
             // Custom/other event types
             const isOtherEvent = !['o', 'i', 'r', 'm', 'x'].includes(eventType);
             
-            // For output events, detect special characters
+            // For output events, detect special characters. Only outputs made up
+            // entirely of control characters (newlines, tabs, bells, ANSI codes)
+            // are treated as special; anything containing real text stays a
+            // normal, editable output event.
+            const sanitizedData = sanitizeAnsiCodes(data);
+            const hasVisibleText = sanitizedData.replace(/[\u0000-\u001f\u007f]/g, '').trim().length > 0;
             const hasNewLine = isOutputEvent && (data.includes('\r') || data.includes('\n'));
             const isCursorOrEraseCode = isOutputEvent && /\u001b\[\d*[A-DK]/.test(data);
-            const isEnterEvent = isOutputEvent && hasNewLine && !isCursorOrEraseCode;
-            const isBackspaceEvent = isOutputEvent && data.includes('\b');
-            const isBellEvent = isOutputEvent && data.includes('\u0007'); // ASCII Bell character
-            const isTabEvent = isOutputEvent && data.includes('\t'); // Tab character
-            const sanitizedData = sanitizeAnsiCodes(data);
-            const isControlCodeEvent = isOutputEvent && !isEnterEvent && !isBackspaceEvent && !isBellEvent && !isTabEvent && sanitizedData.trim() === '' && data.trim() !== '';
+            const isEnterEvent = isOutputEvent && hasNewLine && !hasVisibleText && !isCursorOrEraseCode;
+            const isBackspaceEvent = isOutputEvent && !hasVisibleText && data.includes('\b');
+            const isBellEvent = isOutputEvent && !hasVisibleText && data.includes('\u0007'); // ASCII Bell character
+            const isTabEvent = isOutputEvent && !hasVisibleText && data.includes('\t'); // Tab character
+            const isControlCodeEvent = isOutputEvent && !isEnterEvent && !isBackspaceEvent && !isBellEvent && !isTabEvent && !hasVisibleText && data.trim() !== '';
 
             const item = document.createElement('div');
             item.className = `event-item`;
@@ -822,17 +922,17 @@ function renderTimeline() {
                 contentValue = escapeHtml(data);
                 inputProperties = 'placeholder="User Input"';
             } else if (isResizeEvent) {
-                contentValue = data; // e.g., "80x24"
+                contentValue = escapeHtml(String(data)); // e.g., "80x24"
                 inputProperties = 'placeholder="Terminal Size" disabled';
             } else if (isMarkerEvent) {
                 contentValue = escapeHtml(data);
                 inputProperties = 'placeholder="Marker/Annotation"';
             } else if (isExitEvent) {
-                contentValue = data; // exit code
+                contentValue = escapeHtml(String(data)); // exit code
                 inputProperties = 'placeholder="Exit Code" disabled';
             } else if (isOtherEvent) {
-                contentValue = escapeHtml(data);
-                inputProperties = `placeholder="Event Type: ${eventType}"`;
+                contentValue = escapeHtml(String(data));
+                inputProperties = `placeholder="Event Type: ${escapeHtml(String(eventType))}"`;
             } else if (isOutputEvent) {
                 // Handle output event special cases
                 if (isEnterEvent) {
@@ -861,7 +961,7 @@ function renderTimeline() {
                     <input type="checkbox" class="event-checkbox" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" checked>
                 </label>
                 <span class="special-char-indicator"></span>
-                <input type="number" class="delay-input" value="${delay.toFixed(6)}" step="0.000001" min="0" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
+                <input type="number" class="delay-input" value="${delayValue.toFixed(6)}" step="0.000001" min="0" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
                 <input type="text" class="content-input" value="${contentValue}" ${inputProperties} data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
                 <div class="event-controls">
                     <button class="insert-marker-btn" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Insert Marker After This Event">📍</button>
@@ -918,13 +1018,28 @@ function renderTimeline() {
 }
 
 function updateDataFromUI(chunkIndex, eventIndex, field, value) {
-    const event = recordingChunks[chunkIndex].events[eventIndex];
-    if (field === 'delay') {
-        event[0] = parseFloat(value);
-    } else if (field === 'content') {
+    const event = recordingChunks[chunkIndex]?.events[eventIndex];
+    if (!event) return;
+    if (field === 'content') {
         event[2] = value;
     }
     playbackEvents = getFlattenedEvents();
+    renderRawView();
+}
+
+function updateDelayFromUI(chunkIndex, eventIndex, inputEl) {
+    const event = recordingChunks[chunkIndex]?.events[eventIndex];
+    if (!event) return;
+    const parsed = parseFloat(inputEl.value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        showStatus('Delay must be a non-negative number');
+        inputEl.value = Number(event[0]).toFixed(6);
+        return;
+    }
+    event[0] = parsed;
+    inputEl.value = parsed.toFixed(6);
+    playbackEvents = getFlattenedEvents();
+    renderRawView();
 }
 
 function sanitizeAnsiCodes(data) {
@@ -937,6 +1052,23 @@ function escapeHtml(unsafe) {
 
 
 // --- PLAYER LOGIC ---
+function applyTerminalEvent(eventType, data) {
+    if (eventType === 'o') {
+        term.write(data);
+        return;
+    }
+    if (eventType !== 'r') return;
+    try {
+        const [cols, rows] = String(data).split('x').map(Number);
+        if (cols > 0 && rows > 0) {
+            term.resize(cols, rows);
+            if (fitAddon) setTimeout(() => fitAddon.fit(), 10);
+        }
+    } catch (e) {
+        console.warn('Invalid resize data:', data);
+    }
+}
+
 function updateActiveEventMarker() {
     document.querySelectorAll('.event-item.active').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.raw-view .line.highlight').forEach(el => el.classList.remove('highlight'));
@@ -957,23 +1089,30 @@ function renderRawView() {
     let content = '';
     let lineIndex = 0;
     let eventIndex = 0; // Separate counter for events only
-    
+
+    const emitComment = (text) => {
+        content += `<div class="line comment">${escapeHtml(text)}</div>`;
+        lineIndex++;
+    };
+
     recordingChunks.forEach((chunk, chunkIndex) => {
-        // Add chunk comment
+        // Add chunk comments: extra leading comments, then the primary one
+        (chunk.extraLeading || []).forEach(emitComment);
         if (chunk.comment) {
-            content += `<div class="line comment" data-line-index="${lineIndex}">${escapeHtml(chunk.comment)}</div>`;
-            lineIndex++;
+            emitComment(chunk.comment);
         }
-        
-        // Add chunk events
+
+        // Add chunk events; only event lines carry data-line-index so the
+        // active-event highlight can never attach to a comment line
         chunk.events.forEach(event => {
-            // Use eventIndex for event lines to match timeline tracking
             content += `<div class="line" data-line-index="${eventIndex}">${escapeHtml(JSON.stringify(event))}</div>`;
             lineIndex++;
             eventIndex++;
         });
+
+        (chunk.trailingComments || []).forEach(emitComment);
     });
-    
+
     rawContent.innerHTML = content;
 }
 
@@ -992,33 +1131,17 @@ function play() {
         const [delay, eventType, data] = playbackEvents[currentIndex];
 
         const timeoutId = setTimeout(() => {
-            // Handle different event types during playback
-            if (eventType === 'o') {
-                // Output event - write to terminal
-                term.write(data);
-            } else if (eventType === 'r') {
-                // Resize event - resize terminal
-                try {
-                    const [cols, rows] = data.split('x').map(Number);
-                    if (cols && rows && fitAddon) {
-                        term.resize(cols, rows);
-                        setTimeout(() => fitAddon.fit(), 10);
-                    }
-                } catch (e) {
-                    console.warn('Invalid resize data:', data);
-                }
+            // Output drives the terminal; resize adjusts geometry. Input,
+            // marker and exit events are metadata only and are logged.
+            if (eventType === 'o' || eventType === 'r') {
+                applyTerminalEvent(eventType, data);
             } else if (eventType === 'i') {
-                // Input event - could be displayed differently or logged
                 console.log('Input event:', data);
-                // For now, don't write input events to terminal output
             } else if (eventType === 'm') {
-                // Marker event - could trigger UI indicator
                 console.log('Marker:', data);
             } else if (eventType === 'x') {
-                // Exit event - could show exit status
                 console.log('Process exit:', data);
             } else {
-                // Other/custom event types - log for debugging
                 console.log(`Event ${eventType}:`, data);
             }
             
@@ -1062,17 +1185,19 @@ function reset() {
 function seekTo(globalIndex) {
     if (isPlaying) return;
     pause();
-    
+
     playbackEvents = getFlattenedEvents();
-    if(globalIndex >= playbackEvents.length) return;
+    globalIndex = Math.max(0, Math.min(globalIndex, playbackEvents.length));
 
     currentIndex = globalIndex;
     term.clear();
 
     for (let i = 0; i < currentIndex; i++) {
-        term.write(playbackEvents[i][2]);
+        const [, eventType, data] = playbackEvents[i];
+        applyTerminalEvent(eventType, data);
     }
-    
+    if (fitAddon) fitAddon.fit();
+
     updateButtonUI();
     updateActiveEventMarker();
 }
@@ -1087,7 +1212,7 @@ timelineEditor.addEventListener('change', (e) => {
     const eventIndex = parseInt(target.dataset.eventIndex, 10);
 
     if (target.classList.contains('delay-input')) {
-        updateDataFromUI(chunkIndex, eventIndex, 'delay', target.value);
+        updateDelayFromUI(chunkIndex, eventIndex, target);
     } else if (target.classList.contains('content-input')) {
         updateDataFromUI(chunkIndex, eventIndex, 'content', target.value);
     } else if (target.classList.contains('chunk-comment')) {
@@ -1113,6 +1238,7 @@ timelineEditor.addEventListener('click', (e) => {
         recordingChunks[chunkIndex].events.splice(eventIndex, 1);
         renderTimeline();
         playbackEvents = getFlattenedEvents();
+        renderRawView();
     }
     
     const speedBtn = e.target.closest('.speed-btn');
@@ -1295,6 +1421,8 @@ addEventBtn.addEventListener('click', () => {
     if (recordingChunks.length > 0) {
         recordingChunks[recordingChunks.length - 1].events.push([0.1, "o", ""]);
         renderTimeline();
+        playbackEvents = getFlattenedEvents();
+        renderRawView();
         timelineEditor.scrollTop = timelineEditor.scrollHeight;
     }
 });
@@ -1302,122 +1430,184 @@ addEventBtn.addEventListener('click', () => {
 uploadBtn.addEventListener('click', () => fileUploader.click());
 fileUploader.addEventListener('change', (e) => {
     const file = e.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const lines = event.target.result.split('\n');
-            const uploadedHeader = JSON.parse(lines[0]);
-            
-            // Preserve all metadata from the uploaded header
-            recordingHeader = { ...uploadedHeader };
-            console.log('Uploaded header preserved:', recordingHeader);
-            
-            // Load metadata into form fields
-            loadMetadataToForm();
-            
-            // Parse events and comments (v3 format support)
-            const events = [];
-            const comments = [];
-            let currentComment = null;
-            
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+        showStatus('File too large (limit 50 MB)');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const lines = String(event.target.result).split('\n');
+
+            let uploadedHeader;
+            try {
+                uploadedHeader = JSON.parse(lines[0]);
+            } catch (err) {
+                throw new Error('Invalid header: the first line must be a JSON object');
+            }
+            if (!uploadedHeader || typeof uploadedHeader !== 'object' || Array.isArray(uploadedHeader)) {
+                throw new Error('Invalid header: the first line must be a JSON object');
+            }
+            if (typeof uploadedHeader.version !== 'number' || ![2, 3].includes(uploadedHeader.version)) {
+                throw new Error('Unsupported cast version (expected 2 or 3)');
+            }
+
+            // Parse events and comments; any invalid line rejects the whole
+            // file so a broken cast can never silently lose data
+            const items = [];
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
-                
                 if (line.startsWith('#')) {
-                    // This is a comment
-                    currentComment = line;
-                    comments.push({index: events.length, comment: line});
-                } else {
-                    // This is an event
-                    try {
-                        events.push(JSON.parse(line));
-                    } catch (e) {
-                        console.warn('Failed to parse line:', line);
+                    items.push({ type: 'comment', text: line });
+                    continue;
+                }
+                let parsedEvent;
+                try {
+                    parsedEvent = JSON.parse(line);
+                } catch (err) {
+                    throw new Error(`Line ${i + 1}: invalid JSON`);
+                }
+                if (!Array.isArray(parsedEvent) || parsedEvent.length < 3) {
+                    throw new Error(`Line ${i + 1}: event must be [delay, type, data]`);
+                }
+                if (typeof parsedEvent[0] !== 'number' || !Number.isFinite(parsedEvent[0]) || parsedEvent[0] < 0) {
+                    throw new Error(`Line ${i + 1}: delay must be a non-negative number`);
+                }
+                if (typeof parsedEvent[1] !== 'string') {
+                    throw new Error(`Line ${i + 1}: event type must be a string`);
+                }
+                if (typeof parsedEvent[2] !== 'string') {
+                    throw new Error(`Line ${i + 1}: event data must be a string`);
+                }
+                items.push({ type: 'event', obj: parsedEvent });
+            }
+
+            const events = items.filter(item => item.type === 'event').map(item => item.obj);
+            if (events.length > MAX_EVENTS) {
+                throw new Error(`Too many events (limit ${MAX_EVENTS})`);
+            }
+
+            // v2 recordings use absolute timestamps; convert them to v3
+            // interval delays so playback timing stays correct
+            const wasV2 = uploadedHeader.version === 2;
+            if (wasV2) {
+                let previousTimestamp = 0;
+                events.forEach(ev => {
+                    const timestamp = ev[0];
+                    ev[0] = Math.max(0.000001, timestamp - previousTimestamp);
+                    previousTimestamp = timestamp;
+                });
+            }
+
+            pause();
+
+            recordingHeader = normalizeHeaderToV3({ ...uploadedHeader });
+            loadMetadataToForm();
+
+            recordingChunks = groupEventsIntoChunks(events);
+
+            // Attach every comment from the source file: leading comments go
+            // to the chunk containing the following event, additional and
+            // trailing comments are preserved alongside the editable one
+            const chunkOfIndex = [];
+            recordingChunks.forEach((chunk, ci) => chunk.events.forEach(() => chunkOfIndex.push(ci)));
+            let pendingComments = [];
+            let eventCursor = 0;
+            const assignedCommentChunks = new Set();
+            items.forEach(item => {
+                if (item.type === 'comment') {
+                    pendingComments.push(item.text);
+                    return;
+                }
+                const ci = chunkOfIndex[eventCursor++] ?? recordingChunks.length - 1;
+                const chunk = recordingChunks[ci];
+                if (!chunk) return;
+                if (pendingComments.length > 0) {
+                    if (!assignedCommentChunks.has(ci)) {
+                        // First real comment for this chunk replaces the
+                        // freshly generated placeholder
+                        assignedCommentChunks.add(ci);
+                        chunk.comment = pendingComments[0];
+                        chunk.extraLeading = pendingComments.slice(1);
+                    } else {
+                        chunk.extraLeading = (chunk.extraLeading || []).concat(pendingComments);
                     }
                 }
-            }
-            
-            recordingChunks = groupEventsIntoChunks(events);
-            
-            // Apply preserved comments to chunks where possible
-            comments.forEach(commentData => {
-                const chunkIndex = findChunkForEventIndex(commentData.index);
-                if (chunkIndex >= 0 && chunkIndex < recordingChunks.length) {
-                    recordingChunks[chunkIndex].comment = commentData.comment;
-                }
+                pendingComments = [];
             });
-            
-            // Handle both v3 format (term.cols/term.rows) and legacy formats
-            const cols = parseInt(recordingHeader.term?.cols || recordingHeader.width, 10);
-            const rows = parseInt(recordingHeader.term?.rows || recordingHeader.rows || recordingHeader.height, 10);
+            if (pendingComments.length > 0) {
+                if (recordingChunks.length === 0) {
+                    recordingChunks.push({ speed: 1, events: [], comment: null, extraLeading: [], trailingComments: pendingComments });
+                } else {
+                    const lastChunk = recordingChunks[recordingChunks.length - 1];
+                    lastChunk.trailingComments = (lastChunk.trailingComments || []).concat(pendingComments);
+                }
+            }
 
+            playbackEvents = getFlattenedEvents();
+
+            const cols = parseInt(recordingHeader.term?.cols ?? recordingHeader.width, 10);
+            const rows = parseInt(recordingHeader.term?.rows ?? recordingHeader.height ?? recordingHeader.rows, 10);
             if (!isNaN(cols) && !isNaN(rows)) {
                 term.resize(cols, rows);
             }
             fitAddon.fit();
-            
+
             renderTimeline();
             reset();
-        };
-        reader.readAsText(file);
-    }
+            showStatus(wasV2 ? 'Cast loaded (v2 converted to v3)' : 'Cast loaded', false);
+        } catch (err) {
+            console.error(err);
+            showStatus(err.message || 'Failed to load cast');
+        }
+    };
+    reader.readAsText(file);
 });
 
-function findChunkForEventIndex(eventIndex) {
-    let currentIndex = 0;
-    for (let i = 0; i < recordingChunks.length; i++) {
-        if (eventIndex >= currentIndex && eventIndex < currentIndex + recordingChunks[i].events.length) {
-            return i;
-        }
-        currentIndex += recordingChunks[i].events.length;
+function normalizeHeaderToV3(header) {
+    const normalized = { ...header };
+    if (normalized.version === 2 || normalized.width != null || normalized.height != null) {
+        normalized.term = normalized.term && typeof normalized.term === 'object' ? { ...normalized.term } : {};
+        if (normalized.term.cols == null && normalized.width != null) normalized.term.cols = normalized.width;
+        if (normalized.term.rows == null && normalized.height != null) normalized.term.rows = normalized.height;
+        delete normalized.width;
+        delete normalized.height;
+        delete normalized.rows;
     }
-    return -1;
+    normalized.version = 3;
+    if (!normalized.term || typeof normalized.term !== 'object') normalized.term = {};
+    if (!Number.isFinite(Number(normalized.term.cols)) || Number(normalized.term.cols) <= 0) normalized.term.cols = 80;
+    if (!Number.isFinite(Number(normalized.term.rows)) || Number(normalized.term.rows) <= 0) normalized.term.rows = 24;
+    return normalized;
 }
 
 downloadBtn.addEventListener('click', () => {
     // Save metadata from form before downloading
     saveMetadataFromForm();
-    
-    // Ensure v3 compliant header structure
-    let downloadHeader = { ...recordingHeader };
-    
-    // Migrate legacy format to v3 if needed
-    if (downloadHeader.width || downloadHeader.height) {
-        if (!downloadHeader.term) {
-            downloadHeader.term = {};
-        }
-        if (downloadHeader.width && !downloadHeader.term.cols) {
-            downloadHeader.term.cols = downloadHeader.width;
-            delete downloadHeader.width;
-        }
-        if (downloadHeader.height && !downloadHeader.term.rows) {
-            downloadHeader.term.rows = downloadHeader.height;
-            delete downloadHeader.height;
-        }
-        if (downloadHeader.rows && !downloadHeader.term.rows) {
-            downloadHeader.term.rows = downloadHeader.rows;
-            delete downloadHeader.rows;
-        }
-    }
-    
-    // Ensure required v3 fields
-    if (!downloadHeader.version) downloadHeader.version = 3;
-    if (!downloadHeader.term) downloadHeader.term = { cols: 80, rows: 24 };
-    if (!downloadHeader.term.cols) downloadHeader.term.cols = 80;
-    if (!downloadHeader.term.rows) downloadHeader.term.rows = 24;
-    
+
+    // Always emit a fully v3-compliant header, regardless of what was loaded
+    const downloadHeader = normalizeHeaderToV3(recordingHeader);
+
     console.log('Download header (v3 compliant):', downloadHeader);
     const headerLine = JSON.stringify(downloadHeader);
     let content = headerLine + '\n';
-    
-    // Add chunks with comments in v3 format
+
+    // Emit chunks with every comment preserved: the primary comment,
+    // additional leading comments, events, then trailing comments
     recordingChunks.forEach(chunk => {
         if (chunk.comment) {
             content += chunk.comment + '\n';
         }
+        (chunk.extraLeading || []).forEach(comment => {
+            content += comment + '\n';
+        });
         chunk.events.forEach(event => {
             content += JSON.stringify(event) + '\n';
+        });
+        (chunk.trailingComments || []).forEach(comment => {
+            content += comment + '\n';
         });
     });
     
@@ -1434,18 +1624,14 @@ downloadBtn.addEventListener('click', () => {
 
 // --- METADATA FUNCTIONS ---
 function loadMetadataToForm() {
-    if (recordingHeader.title) {
-        castTitle.value = recordingHeader.title;
-    }
-    if (recordingHeader.command) {
-        castCommand.value = recordingHeader.command;
-    }
-    if (recordingHeader.tags) {
-        if (Array.isArray(recordingHeader.tags)) {
-            castTags.value = recordingHeader.tags.join(', ');
-        } else {
-            castTags.value = recordingHeader.tags;
-        }
+    // Assign every field so values from a previously loaded cast cannot
+    // leak into the current one when a field is missing
+    castTitle.value = recordingHeader.title || '';
+    castCommand.value = recordingHeader.command || '';
+    if (Array.isArray(recordingHeader.tags)) {
+        castTags.value = recordingHeader.tags.join(', ');
+    } else {
+        castTags.value = recordingHeader.tags || '';
     }
 }
 
@@ -1470,6 +1656,13 @@ function saveMetadataFromForm() {
         delete recordingHeader.tags;
     }
 }
+
+promptPatternInput.addEventListener('change', () => {
+    promptPattern = promptPatternInput.value.trim();
+    promptRegex = buildPromptRegex();
+    try { localStorage.setItem('ascinemaeditor.promptPattern', promptPattern); } catch (e) {}
+    if (recordingChunks.length > 0) rechunkWithCurrentPrompt();
+});
 
 tabNav.addEventListener('click', (e) => {
     const tabButton = e.target.closest('.tab-btn');
@@ -1580,6 +1773,7 @@ function initialize() {
         }, 100);
     });
 
+    promptPatternInput.value = promptPattern;
     recordingChunks = groupEventsIntoChunks(initialRecordingData.events);
     playbackEvents = getFlattenedEvents();
     renderTimeline();

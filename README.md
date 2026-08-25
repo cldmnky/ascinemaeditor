@@ -11,6 +11,7 @@ A web-based editor for asciinema cast files with support for v3 format, chunk-ba
 - Terminal preview with xterm.js
 - Upload/download .cast files
 - Comment support in v3 format
+- Configurable prompt detection for chunk splitting (e.g. `$` or `assets>`)
 
 ## Running the Server
 
@@ -62,6 +63,7 @@ PORT=3000 ./bin/ascinemaeditor
 ### Environment Variables
 
 - `PORT`: Server port (default: 8080)
+- `HOST`: Bind address (default: `127.0.0.1`; set `0.0.0.0` to expose on the network)
 
 ## Usage
 

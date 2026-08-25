@@ -9,7 +9,7 @@
 
 - `task serve` (build + run) or `task dev` (live reload; watches `main.go`, `index.html`, `test-data/`). Install go-task: `go install github.com/go-task/task/v3/cmd/task@latest`.
 - Plain alternative: `go run main.go`. Port via `PORT` env (default 8080).
-- **The server serves files from its current working directory** (`http.Dir(".")`) — always launch from the repo root or `index.html` will 404.
+- **The server serves files from its current working directory** (`http.Dir(".")`) — always launch from the repo root or `index.html` will 404. It binds to `127.0.0.1` by default (`HOST` env overrides), blocks dotfiles/dot-directories, and disables directory listings.
 
 ## Verification
 
