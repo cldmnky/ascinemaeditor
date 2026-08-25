@@ -17,13 +17,19 @@ A desktop (Wails) + browser editor for asciinema cast files. Edit event timing a
 
 ![Timeline editor beside the terminal preview](docs/screenshots/editor-overview.png)
 
-The left panel is the timeline editor. The right panel provides terminal playback and a synchronized Raw `.cast` view. The horizontal timeline above both panels provides slider scrubbing and a filmstrip of events.
+The left panel is the timeline editor. The right panel provides terminal playback and a synchronized Raw `.cast` view. The horizontal timeline above both panels provides slider scrubbing and a filmstrip of events. The built-in sample recording is loaded on startup so the editor is usable before a file is imported.
+
+### Timeline at a glance
+
+![Horizontal timeline with chunk segments, event ticks, and filmstrip](docs/screenshots/horizontal-timeline.png)
+
+The timeline shows the current event, total event count, current and total playback time, chunk boundaries, and event-type ticks. Drag the slider, click the track, or click an event block to seek without editing the recording.
 
 ## Running
 
 ### Desktop (Wails) — no browser needed
 
-Requires Go 1.21+ and the Wails CLI (auto-installed to `./bin/wails` by the tasks below).
+Requires Go 1.25+ and the Wails CLI (auto-installed to `./bin/wails` by the tasks below).
 
 ```bash
 # run as a native desktop app
@@ -67,17 +73,37 @@ The editor accepts asciinema v3 recordings. It also imports v2 recordings and co
 
 ## Using the Editor
 
+### Navigate the Timeline
+
+The horizontal timeline and the vertical event list control the same playback position:
+
+- Drag the slider or click anywhere on the timeline track to seek by playback time.
+- Click a colored event tick, filmstrip block, event row, or chunk segment to seek to that point.
+- Use **Prev chunk** and **Next chunk** to jump between prompt-detected chunks.
+- Press **Left Arrow** or **Right Arrow** when focus is outside an input to move one event backward or forward.
+- Press **Space** when focus is outside an input to toggle playback.
+
 ### Edit Events
 
 Each timeline row is one cast event.
 
 - Change the delay field to set the interval before that event. Delays must be non-negative numbers.
 - Change editable content fields to update terminal output, input, or marker text.
-- Use the checkbox to choose events affected by **Speed Up**.
-- Select **📍** on an event to insert a marker after it, or **Add Marker** to add one at the start of a chunk.
+- Use the checkbox to choose events affected by the chunk's **Speed 1x** control. The control cycles selected events through `1x`, `2x`, `4x`, and `8x` by adjusting their delays.
+- Select **📍 Marker** to add a marker at the start of a chunk, or the pin button on an event to insert a marker after that event.
 - Select the trash icon to remove an event. Select **Add Event** to append a blank output event.
 
 Some control-only output events, such as a bare newline or bell, are displayed as disabled special-character rows. Output that contains visible text remains editable even when it ends with a newline.
+
+The editor preserves the asciinema event type when an event is edited:
+
+| Type | Meaning |
+|---|---|
+| `o` | Terminal output |
+| `i` | Input or keystrokes |
+| `r` | Terminal resize |
+| `m` | Editor marker |
+| `x` | Process exit |
 
 ### Preview and Raw View
 
@@ -88,23 +114,36 @@ Some control-only output events, such as a bare newline or bell, are displayed a
 - **Reset** clears playback and returns to the first event.
 - Select **Raw .cast** to inspect the exact serialized event stream. Comments remain in the same position they will have in the downloaded file.
 
+![Terminal preview during playback](docs/screenshots/playback.png)
+
+![Raw .cast view with serialized events and comments](docs/screenshots/raw-view.png)
+
 ### Metadata and Comments
 
 Open **Cast Metadata (v3)** to edit the recording title, command, and tags. Tags are entered as comma-separated values.
 
 Chunk headings provide an editable primary comment. Existing comments from an uploaded cast are preserved in their original positions, including multiple comments before one event and comments between events.
 
+### Load and Save
+
+- Select **Upload .cast** to use a file picker, or drag a `.cast` file onto the editor.
+- The editor accepts asciinema v2 and v3 files. v2 absolute timestamps are converted to v3 interval delays when loaded.
+- Files are limited to 50 MB and 100,000 events.
+- In browser mode, **Download .cast** downloads the edited recording as `edited-recording.cast`.
+- In the desktop app, **Upload .cast** and **Download .cast** use native open and save dialogs.
+- Changes are kept in memory until the edited cast is downloaded or saved.
+
 ## Prompt Detection
 
-Prompt detection groups events into command-sized chunks. The default prompt is `$`; set a different prompt when the recording uses another shell or CLI suffix.
+Prompt detection groups events into command-sized chunks. The default prompt is `$`; set a different prompt pattern when the recording uses another shell or CLI suffix.
 
-![Prompt detection configured for an assets prompt](docs/screenshots/prompt-detection.png)
+![Prompt detection configured for a bash-5.3$ prompt](docs/screenshots/prompt-detection.png)
 
 1. Open **Cast Metadata (v3)**.
-2. Enter the literal prompt suffix in **Prompt**. For example, use `assets>` for a prompt ending in `assets>`, or leave it empty for the default `$` behavior.
+2. Enter the literal prompt suffix in **Prompt pattern**. For example, use `assets>` for a prompt ending in `assets>`, or leave it empty for the default `$` behavior.
 3. The timeline regroups immediately. Existing cast comments remain anchored to their original events.
 
-The prompt setting is stored in the browser's local storage, so it is reused the next time the editor is opened in that browser.
+The prompt setting is stored in local storage, so it is reused the next time the editor is opened in the same browser or desktop webview.
 
 ## Troubleshooting
 
