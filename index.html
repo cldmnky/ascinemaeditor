@@ -6,648 +6,210 @@
     <title>Asciinema Web Editor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter','sans-serif'],
+                        mono: ['Fira Code','monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "ghostty-web": "https://cdn.jsdelivr.net/npm/ghostty-web@0.4.0/+esm"
+        }
+    }
+    </script>
     <style>
-        :root {
-            --bg-color: #282c34;
-            --fg-color: #ffffff;
-            --header-bg: #21252b;
-            --controls-bg: #3a4049;
-            --button-bg: #4f5660;
-            --button-hover-bg: #68707a;
-            --shadow-color: rgba(0, 0, 0, 0.4);
-            --font-family-mono: 'Fira Code', monospace;
-            --font-family-sans: 'Inter', sans-serif;
-            --accent-color: #81a2be;
-            --danger-color: #cc6666;
-            --input-bg: #3e4451;
-            --highlight-bg: rgba(129, 162, 190, 0.2);
-        }
-
-        body {
-            font-family: var(--font-family-sans);
-            background-color: #3e4451;
-            color: var(--fg-color);
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
-            margin: 0;
-            padding: 1rem;
-            box-sizing: border-box;
-        }
-
-        .editor-layout {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-            width: 100%;
-            max-width: 1800px;
-        }
-
-        .panel {
-            background: var(--header-bg);
-            border-radius: 12px;
-            box-shadow: 0 5px 20px var(--shadow-color);
-            display: flex;
-            flex-direction: column;
-            height: calc(100vh - 2rem);
-        }
-
-        .panel-header {
-            padding: 1rem 1.5rem;
-            border-bottom: 1px solid var(--controls-bg);
-            font-size: 1.1rem;
-            font-weight: 600;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0;
-        }
-
-        .file-actions {
-            display: flex;
-            gap: 0.75rem;
-        }
-
-        .file-actions button {
-            font-family: var(--font-family-sans);
-            background-color: var(--button-bg);
-            color: var(--fg-color);
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-        }
-        .file-actions button:hover {
-            background-color: var(--button-hover-bg);
-        }
-        
-        /* Player & Right Panel Styles */
-        .player-panel {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            min-height: 0; /* Fix for nested flexbox scrolling */
-        }
-
-        .tab-nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 1rem 0 1.5rem;
-            border-bottom: 1px solid var(--controls-bg);
-            flex-shrink: 0;
-        }
-        .tab-buttons {
-            display: flex;
-            gap: 0.5rem;
-        }
-        .tab-btn {
-            padding: 0.75rem 1.25rem;
-            background: none;
-            border: none;
-            color: #9da5b3;
-            cursor: pointer;
-            font-size: 0.9rem;
-            border-bottom: 2px solid transparent;
-            transition: color 0.2s ease, border-color 0.2s ease;
-        }
-        .tab-btn:hover {
-            color: var(--fg-color);
-        }
-        .tab-btn.active {
-            color: var(--fg-color);
-            border-bottom-color: var(--accent-color);
-        }
-
-        .tab-content {
-            display: none;
-            flex-grow: 1;
-            min-height: 0;
-            max-height: calc(100vh - 200px); /* Reserve space for header/controls */
-            flex: 1;
-            overflow: hidden; /* Prevent content from growing beyond bounds */
-        }
-        .tab-content.active {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            max-height: calc(100vh - 200px); /* Consistent height constraint */
-            overflow: hidden;
-        }
-
-        .terminal-container {
-            flex: 1;
-            min-height: 0;
-            max-height: 60vh; /* Constrain terminal to 60% of viewport height */
-            padding: 0 1rem 1rem;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden; /* Prevent container from growing beyond bounds */
-        }
-
-        /* Ensure xterm.js viewport fills the container */
-        .terminal-container .xterm {
-            flex: 1;
-            min-height: 0;
-            max-height: 100%; /* Ensure it doesn't exceed container */
-            overflow: hidden; /* Let xterm handle its own scrolling */
-        }
-        
-        /* Ensure the xterm viewport is properly sized */
-        .terminal-container .xterm .xterm-viewport {
-            overflow-y: auto !important; /* Enable scrolling within terminal */
-        }
-
-        .terminal-header {
-            background-color: var(--header-bg);
-            padding: 0.75rem;
-            display: flex;
-            align-items: center;
-            position: relative;
-            flex-shrink: 0;
-        }
-        .dots { display: flex; gap: 0.5rem; }
-        .dot { width: 12px; height: 12px; border-radius: 50%; }
-        .dot.red { background-color: #ff5f56; }
-        .dot.yellow { background-color: #ffbd2e; }
-        .dot.green { background-color: #27c93f; }
-        .title { color: rgba(255, 255, 255, 0.5); font-size: 0.9rem; position: absolute; left: 50%; transform: translateX(-50%); }
-
-        .terminal-window.raw-view {
-            padding: 0.5rem;
-            font-size: 0.85rem;
-            line-height: 1.6;
-            overflow-y: auto;
-            overflow-x: auto;
-            width: 100%;
-        }
-        .raw-view .line {
-            padding: 0.1rem 0.5rem;
-            border-radius: 4px;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            white-space: pre-wrap;
-            max-width: 100%;
-            overflow-x: auto;
-        }
-        .raw-view .line.highlight {
-            background-color: var(--highlight-bg);
-        }
-        .raw-view .line.comment {
-            color: #9da5b3;
-            font-style: italic;
-            background-color: rgba(157, 165, 179, 0.1);
-        }
-        .terminal-screen {
-            height: 100%;
-            max-height: 70vh;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            margin: 0;
-            font-family: var(--font-family-mono);
-        }
-        
-        .controls { 
-            display: flex; 
-            align-items: center; 
-            gap: 0.75rem; 
-        }
-        .controls button { 
-            font-family: var(--font-family-sans); 
-            background-color: var(--button-bg); 
-            color: var(--fg-color); 
-            border: none; 
-            padding: 0.5rem 1rem; 
-            border-radius: 6px; 
-            font-size: 0.85rem; 
-            cursor: pointer; 
-            transition: background-color 0.2s ease; 
-            display: flex; 
-            align-items: center; 
-            gap: 0.5rem; 
-        }
-        .controls button:hover { background-color: var(--button-hover-bg); }
-        .controls button svg { width: 16px; height: 16px; }
-        .controls button.active {
-            background-color: var(--accent-color);
-            color: #282c34;
-        }
-        .controls button.active:hover { background-color: var(--highlight-bg); }
-
-        /* Editor Panel Styles */
-        .timeline-editor {
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-            padding: 1rem;
-        }
-        .special-char-indicator {
-            width: 20px;
-            flex-shrink: 0;
-            text-align: center;
-            font-size: 1.2rem;
-            color: var(--accent-color);
-            font-family: var(--font-family-mono);
-            cursor: pointer;
-            border-radius: 4px;
-            padding: 2px;
-            transition: all 0.2s ease;
-        }
-        .special-char-indicator:hover {
-            background: var(--accent-color);
-            color: var(--header-bg);
-            transform: scale(1.1);
-        }
-        .event-item {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.75rem;
-            padding: 0.5rem;
-            border-radius: 6px;
-            background: var(--bg-color);
-            cursor: pointer;
-            transition: background-color 0.2s;
-            overflow: hidden;
-            max-width: 100%;
-            border-left: 3px solid transparent;
-        }
-        
-        /* Event type specific styling */
-        .event-item[data-event-type="i"] {
-            border-left-color: #4CAF50; /* Green for input */
-            background: rgba(76, 175, 80, 0.05);
-        }
-        .event-item[data-event-type="r"] {
-            border-left-color: #FF9800; /* Orange for resize */
-            background: rgba(255, 152, 0, 0.05);
-        }
-        .event-item[data-event-type="m"] {
-            border-left-color: #2196F3; /* Blue for markers */
-            background: rgba(33, 150, 243, 0.05);
-        }
-        .event-item[data-event-type="x"] {
-            border-left-color: #F44336; /* Red for exit */
-            background: rgba(244, 67, 54, 0.05);
-        }
-        .event-item[data-event-type="o"] {
-            border-left-color: #9E9E9E; /* Gray for output */
-        }
-        .event-item.active, .event-item:hover {
-            background: #313640;
-        }
-        .event-item.active {
-            box-shadow: inset 2px 0 0 var(--accent-color);
-        }
-
-        .event-item input {
-            font-family: var(--font-family-mono);
-            background: var(--input-bg);
-            border: 1px solid var(--button-bg);
-            color: var(--fg-color);
-            border-radius: 4px;
-            padding: 0.5rem;
-            font-size: 0.9rem;
-        }
-        .event-item input.delay-input {
-            width: 100px;
-        }
-        .event-item input.content-input {
-            flex-grow: 1;
-            max-width: 400px;
-            width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .event-item input.content-input:disabled {
-            background: var(--bg-color);
-            border-color: var(--bg-color);
-            color: #9da5b3;
-            cursor: not-allowed;
-        }
-        .event-controls {
-            display: flex;
-            gap: 0.25rem;
-            align-items: center;
-        }
-        .event-controls button {
-            background: none;
-            border: none;
-            color: #9da5b3;
-            cursor: pointer;
-            padding: 0.25rem;
-        }
-        .event-controls button:hover {
-            color: var(--fg-color);
-        }
-        .remove-btn:hover {
-            color: var(--danger-color);
-        }
-        
-        /* Event Selection Styles */
-        .select-all-control {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-        }
-        .select-all-control input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--accent-color);
-            cursor: pointer;
-        }
-        .event-checkbox-label {
-            display: flex;
-            align-items: center;
-            margin-right: 0.5rem;
-            cursor: pointer;
-        }
-        .event-checkbox {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--accent-color);
-            cursor: pointer;
-        }
-        .event-item:has(.event-checkbox:not(:checked)) {
-            opacity: 0.6;
-        }
-        .event-item:has(.event-checkbox:not(:checked)) .delay-input,
-        .event-item:has(.event-checkbox:not(:checked)) .content-input {
-            background: var(--controls-bg);
-        }
-        
-        .add-event-btn {
-            width: calc(100% - 2rem);
-            margin: 1rem;
-            padding: 0.75rem;
-            background: var(--button-bg);
-            border: none;
-            color: var(--fg-color);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1rem;
-            flex-shrink: 0;
-        }
-        .add-event-btn:hover {
-            background: var(--button-hover-bg);
-        }
-
-        /* Chunk Styles */
-        .chunk-container {
-            border: 1px solid var(--controls-bg);
-            border-radius: 8px;
-            margin-bottom: 1.5rem;
-            background: rgba(0,0,0,0.1);
-        }
-        .chunk-header {
-            display: flex;
-            justify-content: flex-start;
-            align-items: center;
-            gap: 1rem;
-            padding: 0.75rem 1rem;
-            background: var(--controls-bg);
-            border-bottom: 1px solid var(--bg-color);
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-        }
-        .chunk-header:hover {
-            background: var(--button-hover-bg);
-        }
-        .chunk-header span {
-            font-weight: 600;
-            color: #c5c8c6;
-            display: flex;
-            align-items: center;
-            gap: 0.25rem;
-            flex: 1;
-        }
-        .chunk-comment {
-            background: transparent;
-            border: none;
-            color: #c5c8c6;
-            font-weight: 600;
-            font-size: 0.9rem;
-            flex: 1;
-            min-width: 0;
-            padding: 0.25rem;
-            border-radius: 4px;
-        }
-        .chunk-comment:hover, .chunk-comment:focus {
-            background: var(--input-bg);
-            outline: none;
-        }
-        .chunk-toggle {
-            display: inline-flex;
-            width: 16px;
-            height: 16px;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: transform 0.2s ease;
-            font-size: 14px;
-            line-height: 1;
-        }
-        .chunk-toggle.collapsed {
-            transform: rotate(-90deg);
-        }
-        .chunk-events {
-            transition: max-height 0.3s ease, opacity 0.3s ease;
-            overflow: hidden;
-        }
-        .chunk-events.collapsed {
-            max-height: 0;
-            opacity: 0;
-        }
-        .speed-btn {
-            background: var(--button-bg);
-            border: none;
-            color: var(--fg-color);
-            padding: 0.4rem 0.8rem;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-weight: 500;
-        }
-        .speed-btn:hover {
-            background: var(--button-hover-bg);
-        }
-        .speed-btn.active {
-            background: var(--accent-color);
-            color: var(--header-bg);
-        }
-        .speed-btn[data-speed="2"] {
-            background: #4CAF50;
-            color: white;
-        }
-        .speed-btn[data-speed="4"] {
-            background: #FF9800;
-            color: white;
-        }
-        .speed-btn[data-speed="8"] {
-            background: #F44336;
-            color: white;
-        }
-        
-        .chunk-controls {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-        }
-        
-        .add-marker-btn, .insert-marker-btn {
-            background: var(--button-bg);
-            border: none;
-            color: var(--fg-color);
-            padding: 0.4rem 0.8rem;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-size: 0.85rem;
-            font-weight: 500;
-        }
-        .add-marker-btn:hover, .insert-marker-btn:hover {
-            background: var(--button-hover-bg);
-        }
-        .add-marker-btn {
-            background: #2196F3;
-            color: white;
-        }
-        .insert-marker-btn {
-            background: #9C27B0;
-            color: white;
-            font-size: 0.8rem;
-            padding: 0.3rem 0.6rem;
-        }
-
-        .toast-container {
-            position: fixed;
-            bottom: 1rem;
-            right: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            z-index: 1000;
-        }
-        .toast {
-            background: var(--danger-color);
-            color: #fff;
-            padding: 0.6rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            box-shadow: 0 5px 20px var(--shadow-color);
-            max-width: 360px;
-        }
-        .toast.info {
-            background: #3a7ca5;
-        }
+        /* Keep minimal helpers for legacy class hooks and scrollbars */
+        .tab-content { display: none; }
+        .tab-content.active { display: flex; }
+        .event-item.active { outline: 2px solid rgb(14 165 233); outline-offset: -1px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #27272a; }
+        ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 6px; }
+        ::-webkit-scrollbar-thumb:hover { background: #71717a; }
+        /* ghostty canvas fills container */
+        #terminal-container canvas { display: block; width: 100% !important; height: 100% !important; }
+        .chunk-events.collapsed { display: none; }
+        .chunk-toggle.collapsed { transform: rotate(-90deg); }
     </style>
 </head>
-<body>
+<body class="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased flex flex-col">
+<!-- Header -->
+<header class="sticky top-0 z-40 bg-zinc-900/95 backdrop-blur border-b border-zinc-800">
+    <div class="max-w-[1800px] mx-auto px-4 lg:px-6 py-3.5 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center font-mono text-sm font-bold text-zinc-900 shadow">▶</div>
+            <div>
+                <h1 class="text-[15px] font-semibold tracking-tight leading-none">Asciinema Editor</h1>
+                <p class="text-[11px] text-zinc-400 hidden sm:block">Edit • Preview • Export — ghostty-web + Tailwind</p>
+            </div>
+            <span class="hidden md:inline-flex ml-2 px-2.5 py-1 rounded-full bg-zinc-800 text-[11px] font-medium text-zinc-400 border border-zinc-700">v3 • ghostty-web</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="uploadBtn" class="inline-flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 px-4 py-2 rounded-lg text-sm font-medium border border-zinc-700 transition">Upload .cast</button>
+            <button id="downloadBtn" class="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow">Download .cast</button>
+            <input type="file" id="fileUploader" accept=".cast" class="hidden">
+        </div>
+    </div>
+</header>
 
-<div class="editor-layout">
-    <div class="panel">
-        <div class="panel-header">
-            <span>Timeline Editor</span>
-            <div class="file-actions">
-                <button id="uploadBtn">Upload .cast</button>
-                <button id="downloadBtn">Download .cast</button>
-                <input type="file" id="fileUploader" accept=".cast" style="display: none;">
+<!-- Horizontal Timeline + Slider -->
+<section class="bg-zinc-900 border-b border-zinc-800">
+    <div class="max-w-[1800px] mx-auto px-4 lg:px-6 py-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div class="flex items-center gap-3">
+                <h2 class="text-xs font-semibold tracking-widest uppercase text-zinc-300 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
+                    Horizontal Timeline
+                </h2>
+                <span id="eventCounter" class="text-xs font-mono px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-400">0 / 0</span>
+                <span id="chunkCountBadge" class="hidden sm:inline-flex text-xs px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-500">0 chunks</span>
+            </div>
+            <div class="flex items-center gap-3 text-xs font-mono text-zinc-400">
+                <span class="flex items-center gap-1"><span class="text-zinc-500">Current</span> <span id="currentTimeDisplay" class="text-zinc-100 font-medium">0.000s</span></span>
+                <span class="text-zinc-600">/</span>
+                <span class="flex items-center gap-1"><span id="totalTimeDisplay" class="text-zinc-100 font-medium">0.000s</span> <span class="text-zinc-500">total</span></span>
+                <span class="hidden md:inline-flex items-center gap-1.5 text-[11px] text-zinc-500 border-l border-zinc-700 pl-3 ml-1">drag slider • click track to seek</span>
             </div>
         </div>
-        <div class="cast-metadata" id="castMetadata" style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.85rem;">
-            <details>
-                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">Cast Metadata (v3)</summary>
-                <div style="display: grid; gap: 0.5rem; margin-top: 0.5rem;">
-                    <div>
-                        <label>Title: </label>
-                        <input type="text" id="castTitle" placeholder="Recording title" style="width: 200px;">
+
+        <div class="relative group">
+            <div id="timelineTrack" class="relative h-7 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700 cursor-pointer shadow-inner">
+                <div id="timelineProgress" class="absolute left-0 top-0 h-full bg-gradient-to-r from-sky-600 to-sky-400 rounded-full transition-all duration-75" style="width:0%"></div>
+                <div id="timelineChunkSegments" class="absolute inset-0 flex opacity-60"></div>
+                <div id="timelineTicks" class="absolute inset-0"></div>
+                <div id="timelinePlayhead" class="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] pointer-events-none" style="left:0%"></div>
+            </div>
+            <input type="range" id="timelineSlider" min="0" max="1000" value="0" step="1" class="absolute inset-0 w-full h-7 opacity-0 cursor-pointer" aria-label="Scrub timeline">
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+            <div class="flex items-center gap-2 text-zinc-500">
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-1.5 rounded-sm bg-zinc-400"></span> o</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-1.5 rounded-sm bg-emerald-500"></span> i</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-1.5 rounded-sm bg-orange-500"></span> r</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-1.5 rounded-sm bg-sky-500"></span> m</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-1.5 rounded-sm bg-red-500"></span> x</span>
+                <span class="hidden sm:inline text-zinc-600 ml-1">— click any tick to jump</span>
+            </div>
+            <div class="ml-auto flex items-center gap-1.5">
+                <button id="prevChunkBtn" class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition">◀ Prev chunk</button>
+                <button id="nextChunkBtn" class="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition">Next chunk ▶</button>
+            </div>
+        </div>
+
+        <!-- Filmstrip / horizontal event blocks -->
+        <div id="horizontalTimeline" class="mt-4 -mx-1 overflow-x-auto">
+            <div id="horizontalTimelineInner" class="flex gap-1 min-w-max px-1 pb-1"></div>
+        </div>
+        <div id="chunkMarkers" class="hidden"></div>
+    </div>
+</section>
+
+<!-- Main layout -->
+<main class="flex-1 max-w-[1800px] w-full mx-auto px-4 lg:px-6 py-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Left: Timeline Editor -->
+    <div class="bg-zinc-900 rounded-xl border border-zinc-800 shadow-xl flex flex-col min-h-[50vh] lg:h-[calc(100vh-260px)] overflow-hidden">
+        <div class="px-4 py-3 border-b border-zinc-800 flex items-center justify-between flex-shrink-0 bg-zinc-900">
+            <h2 class="font-semibold text-sm tracking-wide flex items-center gap-2"><span class="w-1.5 h-4 rounded-full bg-sky-500"></span> Timeline Editor</h2>
+            <span class="text-xs font-mono text-zinc-500 hidden sm:inline">vertical list • click row to seek</span>
+        </div>
+
+        <div class="border-b border-zinc-800 bg-zinc-900/60" id="castMetadata">
+            <details class="group" open>
+                <summary class="list-none px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-zinc-800/50 transition select-none">
+                    <span class="text-sm font-medium text-zinc-200 flex items-center gap-2">Cast Metadata (v3) <span class="text-xs font-normal text-zinc-500 hidden sm:inline">— title, command, tags, prompt</span></span>
+                    <span class="text-zinc-500 group-open:rotate-180 transition-transform text-xs">▾</span>
+                </summary>
+                <div class="px-4 pb-4 grid gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="flex flex-col gap-1.5 text-xs text-zinc-400">Title
+                            <input type="text" id="castTitle" placeholder="Recording title" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition">
+                        </label>
+                        <label class="flex flex-col gap-1.5 text-xs text-zinc-400">Command
+                            <input type="text" id="castCommand" placeholder="Recorded command" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition">
+                        </label>
                     </div>
-                    <div>
-                        <label>Command: </label>
-                        <input type="text" id="castCommand" placeholder="Recorded command" style="width: 200px;">
-                    </div>
-                    <div>
-                        <label>Tags: </label>
-                        <input type="text" id="castTags" placeholder="tag1, tag2, demo" style="width: 300px;">
-                        <small style="color: #888; display: block;">Comma-separated tags for categorization</small>
-                    </div>
-                    <div>
-                        <label>Prompt: </label>
-                        <input type="text" id="promptPatternInput" placeholder="$ (default)" style="width: 200px;">
-                        <small style="color: #888; display: block;">Text that marks a shell prompt (e.g. <code>$</code> or <code>assets&gt;</code>). Used to split the timeline into chunks.</small>
-                    </div>
+                    <label class="flex flex-col gap-1.5 text-xs text-zinc-400">Tags
+                        <input type="text" id="castTags" placeholder="tag1, tag2, demo" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition">
+                        <span class="text-[11px] text-zinc-500">Comma-separated tags for categorization</span>
+                    </label>
+                    <label class="flex flex-col gap-1.5 text-xs text-zinc-400">Prompt pattern
+                        <input type="text" id="promptPatternInput" placeholder="$ (default)" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition">
+                        <span class="text-[11px] text-zinc-500 leading-relaxed">Text that marks a shell prompt (e.g. <code class="bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700">$</code> or <code class="bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700">assets&gt;</code>). Used to split the timeline into chunks.</span>
+                    </label>
                 </div>
             </details>
         </div>
-        <div class="timeline-editor" id="timelineEditor">
-            <!-- Event items will be dynamically inserted here -->
+
+        <div class="flex-1 overflow-y-auto p-3 space-y-3 bg-zinc-950/40" id="timelineEditor">
+            <!-- Event items dynamically inserted here -->
         </div>
-        <button class="add-event-btn" id="addEventBtn">Add Event</button>
+
+        <div class="p-3 border-t border-zinc-800 bg-zinc-900">
+            <button class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 px-4 py-2.5 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2" id="addEventBtn">+ Add Event</button>
+        </div>
     </div>
-    <div class="panel player-panel">
-        <div class="tab-nav">
-            <div class="tab-buttons">
-                <button class="tab-btn active" data-tab="preview">Preview</button>
-                <button class="tab-btn" data-tab="raw">Raw .cast</button>
+
+    <!-- Right: Player -->
+    <div class="bg-zinc-900 rounded-xl border border-zinc-800 shadow-xl flex flex-col min-h-[50vh] lg:h-[calc(100vh-260px)] overflow-hidden">
+        <div class="tab-nav px-2 py-2 border-b border-zinc-800 flex items-center justify-between flex-shrink-0 bg-zinc-900 gap-2">
+            <div class="flex items-center gap-1 bg-zinc-800 rounded-lg p-1">
+                <button data-tab="preview" class="tab-btn active px-3.5 py-1.5 rounded-md text-xs font-semibold transition bg-white text-zinc-900 shadow">Preview</button>
+                <button data-tab="raw" class="tab-btn px-3.5 py-1.5 rounded-md text-xs font-medium transition text-zinc-400 hover:text-zinc-200">Raw .cast</button>
             </div>
-            <div class="controls">
-                <button id="playPauseBtn">
-                    <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>
-                    <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+            <div class="flex items-center gap-1.5">
+                <button id="playPauseBtn" class="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition shadow">
+                    <svg id="play-icon" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    <svg id="pause-icon" class="w-4 h-4 hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                     <span id="playPauseText">Play</span>
                 </button>
-                <button id="loopBtn" aria-pressed="false" title="Loop playback">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path></svg>
-                    Loop
-                </button>
-                <button id="resetBtn">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg>
-                    Reset
-                </button>
+                <button id="loopBtn" class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs transition" aria-pressed="false" title="Loop playback">↺</button>
+                <button id="resetBtn" class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs transition" title="Reset">⟲</button>
             </div>
         </div>
-        
-        <div id="previewTab" class="tab-content active">
-            <div class="terminal-header">
-                <div class="dots"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
-                <div class="title">bash (Preview)</div>
+
+        <div id="previewTab" class="tab-content active flex-1 flex flex-col min-h-0">
+            <div class="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 border-b border-zinc-800 flex-shrink-0">
+                <div class="flex gap-1.5"><span class="w-3 h-3 rounded-full bg-red-500"></span><span class="w-3 h-3 rounded-full bg-yellow-500"></span><span class="w-3 h-3 rounded-full bg-green-500"></span></div>
+                <span class="text-xs text-zinc-500 font-mono flex-1 text-center">bash — ghostty-web</span>
+                <span class="text-[11px] font-mono text-zinc-500 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse hidden sm:inline"></span><span id="termSize" class="hidden sm:inline">80×24</span></span>
             </div>
-            <div class="terminal-container" id="terminal-container">
-                <!-- xterm.js will attach here -->
-            </div>
-            <!-- Controls moved to tab-nav -->
+            <div class="flex-1 bg-[#1a1b26] p-2 sm:p-3 overflow-hidden min-h-[280px] flex flex-col" id="terminal-container"></div>
         </div>
-        
-        <div id="rawTab" class="tab-content">
-             <div class="terminal-window raw-view">
-                <pre id="raw-content" class="terminal-screen"></pre>
+
+        <div id="rawTab" class="tab-content flex-1 min-h-0 flex-col hidden">
+            <div class="flex-1 overflow-auto p-3 bg-[#0f1217]">
+                <pre id="raw-content" class="text-xs font-mono leading-6 whitespace-pre-wrap break-all"></pre>
             </div>
         </div>
     </div>
-</div>
+</main>
 
-<script>
+<footer class="border-t border-zinc-900 py-4 text-center text-xs text-zinc-600">
+    <span>Tailwind CSS • ghostty-web • slider-driven horizontal timeline</span>
+</footer>
+
+<script type="module">
+import { init, Terminal, FitAddon } from 'ghostty-web';
+
 // --- DATA ---
 const initialRecordingData = {
     header: {
         "version": 3, 
         "term": {
-            "cols": 179, 
-            "rows": 52
+            "cols": 80, 
+            "rows": 24
         }, 
         "timestamp": Math.floor(Date.now() / 1000)
     },
@@ -661,8 +223,6 @@ const initialRecordingData = {
 
 let recordingHeader = initialRecordingData.header;
 let recordingChunks = [];
-// Comments are anchored to the number of events that precede them. Keeping
-// them separate from visual chunks preserves their exact stream position.
 let recordingComments = [];
 
 // --- DOM ELEMENTS ---
@@ -680,6 +240,22 @@ const downloadBtn = document.getElementById('downloadBtn');
 const fileUploader = document.getElementById('fileUploader');
 const tabNav = document.querySelector('.tab-nav');
 const terminalContainer = document.getElementById('terminal-container');
+const termSizeEl = document.getElementById('termSize');
+const chunkCountBadge = document.getElementById('chunkCountBadge');
+
+// Horizontal timeline / slider elements
+const timelineSlider = document.getElementById('timelineSlider');
+const timelineTrack = document.getElementById('timelineTrack');
+const timelineProgress = document.getElementById('timelineProgress');
+const timelineTicks = document.getElementById('timelineTicks');
+const timelineChunkSegments = document.getElementById('timelineChunkSegments');
+const timelinePlayhead = document.getElementById('timelinePlayhead');
+const currentTimeDisplay = document.getElementById('currentTimeDisplay');
+const totalTimeDisplay = document.getElementById('totalTimeDisplay');
+const eventCounter = document.getElementById('eventCounter');
+const horizontalTimelineInner = document.getElementById('horizontalTimelineInner');
+const prevChunkBtn = document.getElementById('prevChunkBtn');
+const nextChunkBtn = document.getElementById('nextChunkBtn');
 
 // v3 metadata fields
 const castTitle = document.getElementById('castTitle');
@@ -695,47 +271,40 @@ function showStatus(message, isError = true) {
     let container = document.querySelector('.toast-container');
     if (!container) {
         container = document.createElement('div');
-        container.className = 'toast-container';
+        container.className = 'toast-container fixed bottom-4 right-4 flex flex-col gap-2 z-50';
         document.body.appendChild(container);
     }
     const toast = document.createElement('div');
-    toast.className = isError ? 'toast' : 'toast info';
+    toast.className = isError ? 'px-4 py-2.5 rounded-lg text-sm shadow-xl border bg-red-600 border-red-500 text-white' : 'px-4 py-2.5 rounded-lg text-sm shadow-xl border bg-sky-600 border-sky-500 text-white';
     toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 5000);
 }
 
 // --- PROMPT DETECTION ---
-// The prompt pattern is plain text that marks a shell prompt in terminal
-// output ("$" by default; e.g. "assets>" for custom shells). It may be
-// followed by spaces and/or ANSI color reset sequences.
 let promptPattern = '';
 try { promptPattern = localStorage.getItem('ascinemaeditor.promptPattern') || ''; } catch (e) {}
 
 function escapeRegExp(text) {
     return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
 function promptCoreSource() {
     const pattern = String(promptPattern ?? '').trim();
     return pattern === '' ? '\\$' : escapeRegExp(pattern);
 }
-
 function buildPromptRegex() {
     return new RegExp(promptCoreSource() + '\\s*(?:\\x1b\\[[\\d;]*m)*\\s*$');
 }
-
 let promptRegex = buildPromptRegex();
-
 function isPromptOutput(data) {
     return promptRegex.test(String(data));
 }
-
 function rechunkWithCurrentPrompt() {
     recordingChunks = groupEventsIntoChunks(getFlattenedEvents());
     playbackEvents = getFlattenedEvents();
     renderTimeline();
     renderRawView();
+    updateHorizontalTimeline();
 }
 
 // --- PLAYER STATE ---
@@ -746,13 +315,193 @@ let playbackEvents = [];
 let loopEnabled = false;
 let term;
 let fitAddon;
+let totalDuration = 0;
+let cumulativeTimes = [];
 
+// --- HORIZONTAL TIMELINE / SLIDER LOGIC ---
+function recomputeTiming() {
+    playbackEvents = getFlattenedEvents();
+    cumulativeTimes = [];
+    let acc = 0;
+    for (const ev of playbackEvents) {
+        const d = Number(ev[0]);
+        acc += Number.isFinite(d) && d >= 0 ? d : 0;
+        cumulativeTimes.push(acc);
+    }
+    totalDuration = acc;
+}
+
+function timeToIndex(targetTime) {
+    if (playbackEvents.length === 0) return 0;
+    if (targetTime <= 0) return 0;
+    if (targetTime >= totalDuration) return playbackEvents.length;
+    for (let i = 0; i < cumulativeTimes.length; i++) {
+        if (cumulativeTimes[i] >= targetTime) return i + 1;
+    }
+    return playbackEvents.length;
+}
+function indexToTime(idx) {
+    if (idx <= 0) return 0;
+    if (idx > cumulativeTimes.length) return totalDuration;
+    return cumulativeTimes[idx - 1] || 0;
+}
+function formatTime(s) {
+    if (!Number.isFinite(s)) return '0.000s';
+    return s.toFixed(3) + 's';
+}
+function updateScrubberUI() {
+    const curTime = indexToTime(currentIndex);
+    const pct = totalDuration > 0 ? (curTime / totalDuration) * 100 : (playbackEvents.length ? (currentIndex / playbackEvents.length) * 100 : 0);
+    const clamped = Math.max(0, Math.min(100, pct));
+    if (timelineProgress) timelineProgress.style.width = clamped + '%';
+    if (timelinePlayhead) timelinePlayhead.style.left = clamped + '%';
+    if (timelineSlider) {
+        const v = Math.round((clamped / 100) * 1000);
+        // avoid fighting user drag
+        if (document.activeElement !== timelineSlider) timelineSlider.value = String(v);
+    }
+    if (currentTimeDisplay) currentTimeDisplay.textContent = formatTime(curTime);
+    if (totalTimeDisplay) totalTimeDisplay.textContent = formatTime(totalDuration);
+    if (eventCounter) eventCounter.textContent = `${currentIndex} / ${playbackEvents.length}`;
+    if (chunkCountBadge) chunkCountBadge.textContent = `${recordingChunks.length} chunk${recordingChunks.length===1?'':'s'}`;
+    if (termSizeEl && recordingHeader.term) {
+        const c = recordingHeader.term.cols || 80;
+        const r = recordingHeader.term.rows || 24;
+        termSizeEl.textContent = `${c}×${r}`;
+    }
+    // highlight active block in filmstrip
+    if (horizontalTimelineInner) {
+        const blocks = horizontalTimelineInner.querySelectorAll('[data-global-index]');
+        blocks.forEach(b => {
+            const idx = parseInt(b.dataset.globalIndex,10);
+            const isActive = idx === currentIndex - 1 || (currentIndex===0 && idx===0 && playbackEvents.length>0);
+            // we highlight via ring
+            if (isActive) b.classList.add('ring-2','ring-sky-400','ring-offset-1','ring-offset-zinc-900');
+            else b.classList.remove('ring-2','ring-sky-400','ring-offset-1','ring-offset-zinc-900');
+        });
+        // auto scroll filmstrip to keep active visible
+        const active = horizontalTimelineInner.querySelector('.ring-2');
+        if (active) active.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+}
+function renderTimelineTicks() {
+    if (!timelineTicks) return;
+    timelineTicks.innerHTML = '';
+    if (playbackEvents.length === 0 || totalDuration === 0) return;
+    // For performance, cap visible ticks if too many
+    const maxTicks = 300;
+    const step = Math.max(1, Math.ceil(playbackEvents.length / maxTicks));
+    playbackEvents.forEach((ev, idx) => {
+        if (idx % step !== 0 && idx !== playbackEvents.length - 1) return;
+        const t = cumulativeTimes[idx] || 0;
+        const pct = totalDuration > 0 ? (t / totalDuration) * 100 : 0;
+        const type = ev[1];
+        let color = 'bg-zinc-400';
+        if (type === 'i') color = 'bg-emerald-500';
+        else if (type === 'r') color = 'bg-orange-500';
+        else if (type === 'm') color = 'bg-sky-400';
+        else if (type === 'x') color = 'bg-red-500';
+        else if (type === 'o') {
+            const d = String(ev[2]||'');
+            if (d.includes('\r') || d.includes('\n')) color = 'bg-zinc-500';
+            else color = 'bg-zinc-300';
+        }
+        const tick = document.createElement('div');
+        tick.className = `absolute top-0 bottom-0 w-px ${color} opacity-80 hover:opacity-100`;
+        tick.style.left = pct + '%';
+        tick.title = `#${idx} [${type}] @ ${formatTime(t)} — ${String(ev[2]).slice(0,40).replace(/\n/g,'↵')}`;
+        tick.addEventListener('click', (e) => {
+            e.stopPropagation();
+            seekTo(idx + 1);
+        });
+        timelineTicks.appendChild(tick);
+    });
+}
+function renderChunkSegments() {
+    if (!timelineChunkSegments) return;
+    timelineChunkSegments.innerHTML = '';
+    if (recordingChunks.length === 0 || totalDuration===0) return;
+    let accTime = 0;
+    recordingChunks.forEach((chunk, ci) => {
+        let chunkDur = 0;
+        chunk.events.forEach(ev => { chunkDur += Number(ev[0])||0; });
+        const wPct = totalDuration>0 ? (chunkDur/totalDuration)*100 : 0;
+        const seg = document.createElement('div');
+        // alternate subtle backgrounds
+        const bg = ci % 2 === 0 ? 'bg-white/[0.04]' : 'bg-white/[0.08]';
+        seg.className = `h-full ${bg} border-r border-zinc-700/60 relative flex items-center justify-center overflow-hidden`;
+        seg.style.width = wPct + '%';
+        seg.title = `Chunk ${ci+1}: ${chunk.comment ? chunk.comment.replace(/^#\s*/,'') : ''} — ${formatTime(chunkDur)}`;
+        const label = document.createElement('span');
+        label.className = 'text-[9px] font-mono font-medium tracking-widest uppercase text-zinc-400 truncate px-1';
+        if (wPct > 6) label.textContent = `${ci+1}`;
+        seg.appendChild(label);
+        seg.addEventListener('click', () => seekTo(chunk.startIndex + 1));
+        timelineChunkSegments.appendChild(seg);
+    });
+}
+function renderHorizontalFilmstrip() {
+    if (!horizontalTimelineInner) return;
+    horizontalTimelineInner.innerHTML = '';
+    if (playbackEvents.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'text-xs text-zinc-500 py-2';
+        empty.textContent = 'No events — upload a .cast or add events';
+        horizontalTimelineInner.appendChild(empty);
+        return;
+    }
+    // Show scaled blocks by delay: width = delay / maxDelay * scale + minWidth
+    let maxDelay = 0;
+    playbackEvents.forEach(ev => { const d = Number(ev[0]); if (d > maxDelay) maxDelay = d; });
+    maxDelay = Math.max(maxDelay, 0.5);
+    playbackEvents.forEach((ev, idx) => {
+        const [delay, type, data] = ev;
+        const w = 8 + Math.min(64, (Number(delay)||0) / maxDelay * 48);
+        const isOutput = type === 'o';
+        const isInput = type === 'i';
+        const isResize = type === 'r';
+        const isMarker = type === 'm';
+        const isExit = type === 'x';
+        let bg = 'bg-zinc-700';
+        let border = 'border-zinc-600';
+        let icon = '●';
+        if (isInput) { bg='bg-emerald-600'; border='border-emerald-500'; icon='⌨'; }
+        else if (isResize) { bg='bg-orange-600'; border='border-orange-500'; icon='↔'; }
+        else if (isMarker) { bg='bg-sky-600'; border='border-sky-500'; icon='📍'; }
+        else if (isExit) { bg='bg-red-600'; border='border-red-500'; icon='🚪'; }
+        else if (isOutput) {
+            const d = String(data);
+            if (d.trim()==='' && (d.includes('\r')||d.includes('\n')||d.includes('\b'))) { bg='bg-zinc-600'; border='border-zinc-500'; icon='⏎'; }
+            else bg='bg-zinc-700';
+        }
+        const btn = document.createElement('button');
+        btn.dataset.globalIndex = String(idx);
+        btn.title = `#${idx} [${type}] delay=${Number(delay).toFixed(3)}s — ${String(data).slice(0,60).replace(/\n/g,'↵')}`;
+        btn.className = `event-block flex-shrink-0 h-10 rounded-md border ${border} ${bg} flex flex-col items-center justify-center gap-0.5 text-white hover:brightness-110 transition relative`;
+        btn.style.width = w + 'px';
+        btn.innerHTML = `<span class="text-[10px] leading-none">${icon}</span><span class="text-[8px] font-mono leading-none opacity-80">${Number(delay).toFixed(2)}</span>`;
+        // small caret for prompt-like outputs
+        if (isPromptOutput(data)) {
+            const dot = document.createElement('span');
+            dot.className = 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-sky-400 border border-zinc-900';
+            btn.appendChild(dot);
+        }
+        btn.addEventListener('click', () => seekTo(idx + 1));
+        horizontalTimelineInner.appendChild(btn);
+    });
+}
+function updateHorizontalTimeline() {
+    recomputeTiming();
+    renderTimelineTicks();
+    renderChunkSegments();
+    renderHorizontalFilmstrip();
+    updateScrubberUI();
+}
 
 // --- EDITOR LOGIC ---
 function getFlattenedEvents() {
     return recordingChunks.flatMap(chunk => chunk.events);
 }
-
 function newChunk(startIndex) {
     return {
         speed: 1,
@@ -762,7 +511,6 @@ function newChunk(startIndex) {
         startIndex
     };
 }
-
 function syncChunkComments(chunks) {
     const commentsByEventIndex = new Map();
     recordingComments.forEach(comment => {
@@ -770,7 +518,6 @@ function syncChunkComments(chunks) {
         comments.push(comment);
         commentsByEventIndex.set(comment.eventIndex, comments);
     });
-
     chunks.forEach(chunk => {
         const comments = commentsByEventIndex.get(chunk.startIndex);
         if (comments?.length) {
@@ -778,17 +525,13 @@ function syncChunkComments(chunks) {
             chunk.commentIsGenerated = false;
             return;
         }
-
         const chunkEnd = chunk.startIndex + chunk.events.length;
         if (recordingComments.some(comment => comment.eventIndex > chunk.startIndex && comment.eventIndex <= chunkEnd)) {
-            // Keep source comments at their precise event positions instead of
-            // adding a generated chunk comment to an uploaded recording.
             chunk.comment = null;
             chunk.commentIsGenerated = false;
         }
     });
 }
-
 function getCommentsByEventIndex() {
     const commentsByEventIndex = new Map();
     const add = (eventIndex, text) => {
@@ -796,7 +539,6 @@ function getCommentsByEventIndex() {
         comments.push(text);
         commentsByEventIndex.set(eventIndex, comments);
     };
-
     recordingComments.forEach(comment => add(comment.eventIndex, comment.text));
     recordingChunks.forEach(chunk => {
         if (chunk.commentIsGenerated && chunk.comment) {
@@ -805,7 +547,6 @@ function getCommentsByEventIndex() {
     });
     return commentsByEventIndex;
 }
-
 function refreshChunkStartIndexes() {
     let eventIndex = 0;
     recordingChunks.forEach(chunk => {
@@ -813,19 +554,16 @@ function refreshChunkStartIndexes() {
         eventIndex += chunk.events.length;
     });
 }
-
 function shiftCommentsForInsertion(eventIndex) {
     recordingComments.forEach(comment => {
         if (comment.eventIndex >= eventIndex) comment.eventIndex++;
     });
 }
-
 function shiftCommentsForRemoval(eventIndex) {
     recordingComments.forEach(comment => {
         if (comment.eventIndex > eventIndex) comment.eventIndex--;
     });
 }
-
 function setChunkComment(chunk, text) {
     const commentIndex = recordingComments.findIndex(comment => comment.eventIndex === chunk.startIndex);
     if (text) {
@@ -839,36 +577,26 @@ function setChunkComment(chunk, text) {
         chunk.commentIsGenerated = false;
         return;
     }
-
     if (commentIndex >= 0) recordingComments.splice(commentIndex, 1);
     const nextComment = recordingComments.find(comment => comment.eventIndex === chunk.startIndex);
     chunk.comment = nextComment?.text || null;
     chunk.commentIsGenerated = false;
 }
-
 function groupEventsIntoChunks(events) {
     const chunks = [];
     if (events.length === 0) return chunks;
-
     let currentChunk = newChunk(0);
-
     events.forEach((event, eventIndex) => {
         const data = event[2];
-        // Detect shell prompts: the configured prompt pattern followed only by
-        // spaces and/or ANSI color reset sequences until the end of the output
         const isPromptEvent = isPromptOutput(data);
-
         if (isPromptEvent && currentChunk.events.length > 0) {
-            // Generate comment for the chunk based on content
             currentChunk.comment = generateChunkComment(currentChunk.events, chunks.length + 1);
             currentChunk.commentIsGenerated = true;
             chunks.push(currentChunk);
             currentChunk = newChunk(eventIndex);
         }
-
         currentChunk.events.push(event);
     });
-
     if (currentChunk.events.length > 0) {
         currentChunk.comment = generateChunkComment(currentChunk.events, chunks.length + 1);
         currentChunk.commentIsGenerated = true;
@@ -877,20 +605,15 @@ function groupEventsIntoChunks(events) {
     syncChunkComments(chunks);
     return chunks;
 }
-
 function generateChunkComment(events, chunkNumber) {
     if (events.length === 0) return `# Chunk ${chunkNumber}: Empty chunk`;
-    
-    // Analyze event types in this chunk
     const eventTypes = {};
     const outputEvents = [];
     const inputEvents = [];
     const specialEvents = [];
-    
     events.forEach(event => {
         const [delay, type, data] = event;
         eventTypes[type] = (eventTypes[type] || 0) + 1;
-        
         if (type === 'o') outputEvents.push(data);
         else if (type === 'i') inputEvents.push(data);
         else if (type === 'r') specialEvents.push(`resize:${data}`);
@@ -898,46 +621,29 @@ function generateChunkComment(events, chunkNumber) {
         else if (type === 'x') specialEvents.push(`exit:${data}`);
         else specialEvents.push(`${type}:${data}`);
     });
-    
-    // Try to identify the main command from output events
     const textContent = outputEvents.join('');
     const lines = textContent.split(/\r?\n/);
-    
-    // Look for command patterns
     let command = null;
     const promptInLine = new RegExp(promptCoreSource());
     for (const line of lines) {
-        const cleanLine = line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim(); // Remove ANSI codes
+        const cleanLine = line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim();
         const match = cleanLine.match(promptInLine);
         if (match && match[0].length < cleanLine.length) {
             command = cleanLine.slice(match.index + match[0].length).trim();
             break;
         }
     }
-    
-    // Generate descriptive comment based on event composition
     let description = '';
-    if (command) {
-        description = `Command - ${command}`;
-    } else if (inputEvents.length > 0) {
-        description = `Input - ${inputEvents.join('')}`;
-    } else if (specialEvents.length > 0) {
-        description = `Special - ${specialEvents.join(', ')}`;
-    } else if (new RegExp(promptCoreSource()).test(textContent)) {
-        description = 'Terminal prompt';
-    } else {
-        description = 'Output';
-    }
-    
-    // Add event type summary if mixed
+    if (command) description = `Command - ${command}`;
+    else if (inputEvents.length > 0) description = `Input - ${inputEvents.join('')}`;
+    else if (specialEvents.length > 0) description = `Special - ${specialEvents.join(', ')}`;
+    else if (new RegExp(promptCoreSource()).test(textContent)) description = 'Terminal prompt';
+    else description = 'Output';
     const typeCount = Object.keys(eventTypes).length;
     if (typeCount > 1) {
-        const typeSummary = Object.entries(eventTypes)
-            .map(([type, count]) => `${type}:${count}`)
-            .join(', ');
+        const typeSummary = Object.entries(eventTypes).map(([type, count]) => `${type}:${count}`).join(', ');
         description += ` (${typeSummary})`;
     }
-    
     return `# Chunk ${chunkNumber}: ${description}`;
 }
 
@@ -946,91 +652,77 @@ function renderTimeline() {
     let globalEventIndex = 0;
     recordingChunks.forEach((chunk, chunkIndex) => {
         const chunkContainer = document.createElement('div');
-        chunkContainer.className = 'chunk-container';
-        
+        chunkContainer.className = 'chunk-container rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow';
+
         const chunkHeader = document.createElement('div');
-        chunkHeader.className = 'chunk-header';
+        chunkHeader.className = 'chunk-header flex items-center justify-between gap-3 px-3 py-2.5 bg-zinc-800 border-b border-zinc-700 cursor-pointer hover:bg-zinc-700/60 transition';
         const commentText = chunk.comment ? chunk.comment.replace(/^#\s*/, '') : `Chunk ${chunkIndex + 1}`;
         chunkHeader.innerHTML = `
-            <span><span class="chunk-toggle">▼</span><input type="text" class="chunk-comment" value="${escapeHtml(commentText)}" data-chunk-index="${chunkIndex}" placeholder="Chunk ${chunkIndex + 1}"></span>
-            <div class="chunk-controls">
-                <label class="select-all-control">
-                    <input type="checkbox" class="select-all-checkbox" data-chunk-index="${chunkIndex}" checked>
-                    <span>Select All</span>
+            <span class="flex items-center gap-2 flex-1 min-w-0"><span class="chunk-toggle inline-flex w-5 h-5 items-center justify-center rounded bg-zinc-700 text-xs text-zinc-300 transition">▼</span><input type="text" class="chunk-comment flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1 text-sm font-medium text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500" value="${escapeHtml(commentText)}" data-chunk-index="${chunkIndex}" placeholder="Chunk ${chunkIndex + 1}"></span>
+            <div class="chunk-controls flex items-center gap-1.5 flex-shrink-0">
+                <label class="select-all-control hidden sm:flex items-center gap-1.5 text-xs text-zinc-400 cursor-pointer select-none">
+                    <input type="checkbox" class="select-all-checkbox w-4 h-4 rounded border-zinc-600 bg-zinc-900 text-sky-600 focus:ring-sky-500/40" data-chunk-index="${chunkIndex}" checked>
+                    <span>Select</span>
                 </label>
-                <button class="speed-btn" data-chunk-index="${chunkIndex}" data-speed="${chunk.speed}">Speed Up ${chunk.speed}x</button>
-                <button class="add-marker-btn" data-chunk-index="${chunkIndex}">📍 Add Marker</button>
+                <button class="speed-btn inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold transition bg-zinc-700 hover:bg-zinc-600 text-zinc-200 border border-zinc-600" data-chunk-index="${chunkIndex}" data-speed="${chunk.speed}">Speed ${chunk.speed}x</button>
+                <button class="add-marker-btn inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white border border-sky-500 transition" data-chunk-index="${chunkIndex}">📍 Marker</button>
             </div>
         `;
         chunkContainer.appendChild(chunkHeader);
 
         const chunkEvents = document.createElement('div');
-        chunkEvents.className = 'chunk-events';
+        chunkEvents.className = 'chunk-events divide-y divide-zinc-800/80 bg-zinc-900';
         chunkContainer.appendChild(chunkEvents);
 
         chunk.events.forEach((event, eventIndex) => {
             const [delay, eventType, data] = event;
             const delayValue = Number.isFinite(delay) ? delay : 0;
-            
-            // Detect event type based on asciinema v3 specification
-            // eventType is already extracted from event[1] above            // Output event ('o') - terminal output
             const isOutputEvent = eventType === 'o';
-            
-            // Input event ('i') - user input 
             const isInputEvent = eventType === 'i';
-            
-            // Resize event ('r') - terminal resize
             const isResizeEvent = eventType === 'r';
-            
-            // Marker event ('m') - bookmarks/annotations
             const isMarkerEvent = eventType === 'm';
-            
-            // Exit event ('x') - process exit
             const isExitEvent = eventType === 'x';
-            
-            // Custom/other event types
             const isOtherEvent = !['o', 'i', 'r', 'm', 'x'].includes(eventType);
-            
-            // For output events, detect special characters. Only outputs made up
-            // entirely of control characters (newlines, tabs, bells, ANSI codes)
-            // are treated as special; anything containing real text stays a
-            // normal, editable output event.
             const sanitizedData = sanitizeAnsiCodes(data);
             const hasVisibleText = sanitizedData.replace(/[\u0000-\u001f\u007f]/g, '').trim().length > 0;
             const hasNewLine = isOutputEvent && (data.includes('\r') || data.includes('\n'));
             const isCursorOrEraseCode = isOutputEvent && /\u001b\[\d*[A-DK]/.test(data);
             const isEnterEvent = isOutputEvent && hasNewLine && !hasVisibleText && !isCursorOrEraseCode;
             const isBackspaceEvent = isOutputEvent && !hasVisibleText && data.includes('\b');
-            const isBellEvent = isOutputEvent && !hasVisibleText && data.includes('\u0007'); // ASCII Bell character
-            const isTabEvent = isOutputEvent && !hasVisibleText && data.includes('\t'); // Tab character
+            const isBellEvent = isOutputEvent && !hasVisibleText && data.includes('\u0007');
+            const isTabEvent = isOutputEvent && !hasVisibleText && data.includes('\t');
             const isControlCodeEvent = isOutputEvent && !isEnterEvent && !isBackspaceEvent && !isBellEvent && !isTabEvent && !hasVisibleText && data.trim() !== '';
 
             const item = document.createElement('div');
-            item.className = `event-item`;
+            // Tailwind styling plus legacy class for selectors
+            let borderColor = 'border-l-zinc-600';
+            if (eventType==='i') borderColor='border-l-emerald-500';
+            else if (eventType==='r') borderColor='border-l-orange-500';
+            else if (eventType==='m') borderColor='border-l-sky-500';
+            else if (eventType==='x') borderColor='border-l-red-500';
+            else if (eventType==='o') borderColor='border-l-zinc-500';
+            item.className = `event-item group flex items-center gap-2 px-2.5 py-2 hover:bg-zinc-800/80 transition cursor-pointer border-l-4 ${borderColor} bg-zinc-900`;
             item.dataset.globalIndex = globalEventIndex;
-            item.dataset.eventType = eventType; // Add event type for CSS styling
-            
+            item.dataset.eventType = eventType;
+
             let contentValue = escapeHtml(sanitizedData);
             let inputProperties = '';
-
-            // Handle different event types
             if (isInputEvent) {
                 contentValue = escapeHtml(data);
                 inputProperties = 'placeholder="User Input"';
             } else if (isResizeEvent) {
-                contentValue = escapeHtml(String(data)); // e.g., "80x24"
-                inputProperties = 'placeholder="Terminal Size" disabled';
+                contentValue = escapeHtml(String(data));
+                inputProperties = 'placeholder="80x24" disabled';
             } else if (isMarkerEvent) {
                 contentValue = escapeHtml(data);
-                inputProperties = 'placeholder="Marker/Annotation"';
+                inputProperties = 'placeholder="Marker"';
             } else if (isExitEvent) {
-                contentValue = escapeHtml(String(data)); // exit code
+                contentValue = escapeHtml(String(data));
                 inputProperties = 'placeholder="Exit Code" disabled';
             } else if (isOtherEvent) {
                 contentValue = escapeHtml(String(data));
                 inputProperties = `placeholder="Event Type: ${escapeHtml(String(eventType))}"`;
             } else if (isOutputEvent) {
-                // Handle output event special cases
                 if (isEnterEvent) {
                     contentValue = '';
                     inputProperties = 'placeholder="Enter Key" disabled';
@@ -1039,10 +731,10 @@ function renderTimeline() {
                     inputProperties = 'placeholder="Backspace" disabled';
                 } else if (isBellEvent) {
                     contentValue = '';
-                    inputProperties = 'placeholder="Bell Character" disabled';
+                    inputProperties = 'placeholder="Bell" disabled';
                 } else if (isTabEvent) {
                     contentValue = '';
-                    inputProperties = 'placeholder="Tab Character" disabled';
+                    inputProperties = 'placeholder="Tab" disabled';
                 } else if (isControlCodeEvent) {
                     contentValue = '';
                     inputProperties = 'placeholder="Control Code" disabled';
@@ -1053,76 +745,47 @@ function renderTimeline() {
             }
 
             item.innerHTML = `
-                <label class="event-checkbox-label">
-                    <input type="checkbox" class="event-checkbox" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" checked>
+                <label class="event-checkbox-label flex items-center cursor-pointer">
+                    <input type="checkbox" class="event-checkbox w-4 h-4 rounded border-zinc-600 bg-zinc-900 text-sky-600 focus:ring-sky-500/30" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" checked>
                 </label>
-                <span class="special-char-indicator"></span>
-                <input type="number" class="delay-input" value="${delayValue.toFixed(6)}" step="0.000001" min="0" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
-                <input type="text" class="content-input" value="${contentValue}" ${inputProperties} data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
-                <div class="event-controls">
-                    <button class="insert-marker-btn" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Insert Marker After This Event">📍</button>
-                    <button class="remove-btn" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Remove Event"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+                <span class="special-char-indicator w-6 h-6 flex-shrink-0 inline-flex items-center justify-center rounded bg-zinc-800 border border-zinc-700 text-xs"></span>
+                <input type="number" class="delay-input w-[88px] bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5 text-xs font-mono text-zinc-100 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" value="${delayValue.toFixed(6)}" step="0.000001" min="0" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
+                <input type="text" class="content-input flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" value="${contentValue}" ${inputProperties} data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}">
+                <div class="event-controls flex items-center gap-1 flex-shrink-0">
+                    <button class="insert-marker-btn w-7 h-7 inline-flex items-center justify-center rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Insert Marker After">📍</button>
+                    <button class="remove-btn w-7 h-7 inline-flex items-center justify-center rounded-md bg-zinc-800 hover:bg-red-900/30 border border-zinc-700 hover:border-red-700 text-zinc-400 hover:text-red-400" data-chunk-index="${chunkIndex}" data-event-index="${eventIndex}" title="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                 </div>
             `;
-            
             const indicator = item.querySelector('.special-char-indicator');
-            
-            // Set indicators based on event type
-            if (isInputEvent) { 
-                indicator.textContent = '⌨️'; 
-                indicator.title = 'User Input Event'; 
-            } else if (isResizeEvent) { 
-                indicator.textContent = '↔️'; 
-                indicator.title = `Terminal Resize: ${data}`; 
-            } else if (isMarkerEvent) { 
-                indicator.textContent = '📍'; 
-                indicator.title = `Marker: ${data}`; 
-            } else if (isExitEvent) { 
-                indicator.textContent = '🚪'; 
-                indicator.title = `Process Exit (code: ${data})`; 
-            } else if (isOtherEvent) { 
-                indicator.textContent = '❓'; 
-                indicator.title = `Custom Event Type: ${eventType}`; 
-            } else if (isOutputEvent) {
-                // Handle output event special cases
-                if (isEnterEvent) { 
-                    indicator.textContent = '⏎'; 
-                    indicator.title = 'Enter Key'; 
-                } else if (isBackspaceEvent) { 
-                    indicator.textContent = '⌫'; 
-                    indicator.title = 'Backspace'; 
-                } else if (isBellEvent) { 
-                    indicator.textContent = '🔔'; 
-                    indicator.title = 'Bell Character (\\u0007)'; 
-                } else if (isTabEvent) { 
-                    indicator.textContent = '⇥'; 
-                    indicator.title = 'Tab Character'; 
-                } else if (isControlCodeEvent) { 
-                    indicator.textContent = '⌘'; 
-                    indicator.title = 'Control Code'; 
-                } else {
-                    indicator.textContent = '📺'; 
-                    indicator.title = 'Terminal Output'; 
-                }
+            if (isInputEvent) { indicator.textContent = '⌨'; indicator.title = 'User Input Event'; }
+            else if (isResizeEvent) { indicator.textContent = '↔'; indicator.title = `Terminal Resize: ${data}`; }
+            else if (isMarkerEvent) { indicator.textContent = '📍'; indicator.title = `Marker: ${data}`; }
+            else if (isExitEvent) { indicator.textContent = '🚪'; indicator.title = `Process Exit (code: ${data})`; }
+            else if (isOtherEvent) { indicator.textContent = '❓'; indicator.title = `Custom Event Type: ${eventType}`; }
+            else if (isOutputEvent) {
+                if (isEnterEvent) { indicator.textContent = '⏎'; indicator.title = 'Enter Key'; }
+                else if (isBackspaceEvent) { indicator.textContent = '⌫'; indicator.title = 'Backspace'; }
+                else if (isBellEvent) { indicator.textContent = '🔔'; indicator.title = 'Bell Character (\\u0007)'; }
+                else if (isTabEvent) { indicator.textContent = '⇥'; indicator.title = 'Tab Character'; }
+                else if (isControlCodeEvent) { indicator.textContent = '⌘'; indicator.title = 'Control Code'; }
+                else { indicator.textContent = '📺'; indicator.title = 'Terminal Output'; }
             }
             chunkEvents.appendChild(item);
             globalEventIndex++;
         });
-
         timelineEditor.appendChild(chunkContainer);
     });
+    updateHorizontalTimeline();
 }
 
 function updateDataFromUI(chunkIndex, eventIndex, field, value) {
     const event = recordingChunks[chunkIndex]?.events[eventIndex];
     if (!event) return;
-    if (field === 'content') {
-        event[2] = value;
-    }
+    if (field === 'content') event[2] = value;
     playbackEvents = getFlattenedEvents();
     renderRawView();
+    updateHorizontalTimeline();
 }
-
 function updateDelayFromUI(chunkIndex, eventIndex, inputEl) {
     const event = recordingChunks[chunkIndex]?.events[eventIndex];
     if (!event) return;
@@ -1136,16 +799,14 @@ function updateDelayFromUI(chunkIndex, eventIndex, inputEl) {
     inputEl.value = parsed.toFixed(6);
     playbackEvents = getFlattenedEvents();
     renderRawView();
+    updateHorizontalTimeline();
 }
-
 function sanitizeAnsiCodes(data) {
     return data.replace(/\u001b\[[()#;?]*.*?[a-zA-Z]/g, '');
 }
-
 function escapeHtml(unsafe) {
     return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
-
 
 // --- PLAYER LOGIC ---
 function applyTerminalEvent(eventType, data) {
@@ -1159,69 +820,65 @@ function applyTerminalEvent(eventType, data) {
         if (cols > 0 && rows > 0) {
             term.resize(cols, rows);
             if (fitAddon) setTimeout(() => fitAddon.fit(), 10);
+            // update header term size
+            recordingHeader.term = recordingHeader.term || {};
+            recordingHeader.term.cols = cols;
+            recordingHeader.term.rows = rows;
+            updateScrubberUI();
         }
     } catch (e) {
         console.warn('Invalid resize data:', data);
     }
 }
-
 function updateActiveEventMarker() {
     document.querySelectorAll('.event-item.active').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.raw-view .line.highlight').forEach(el => el.classList.remove('highlight'));
+    document.querySelectorAll('#raw-content .highlight').forEach(el => el.classList.remove('highlight','bg-sky-900/40'));
     if (currentIndex > 0 && currentIndex <= playbackEvents.length) {
         const activeEventItem = document.querySelector(`.event-item[data-global-index="${currentIndex - 1}"]`);
         if (activeEventItem) {
             activeEventItem.classList.add('active');
+            activeEventItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
-        const activeRawLine = document.querySelector(`.raw-view .line[data-line-index="${currentIndex - 1}"]`);
+        const activeRawLine = document.querySelector(`#raw-content [data-line-index="${currentIndex - 1}"]`);
         if(activeRawLine) {
-            activeRawLine.classList.add('highlight');
+            activeRawLine.classList.add('highlight','bg-sky-900/40');
             activeRawLine.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
     }
+    updateScrubberUI();
 }
-
 function renderRawView() {
     let content = '';
     const events = getFlattenedEvents();
     const commentsByEventIndex = getCommentsByEventIndex();
-
     const emitComment = (text) => {
-        content += `<div class="line comment">${escapeHtml(text)}</div>`;
+        content += `<div class="line comment text-zinc-500 italic">${escapeHtml(text)}</div>`;
     };
-
-    // Emit the same ordered stream that download creates: all comments before
-    // an event, the event itself, then any trailing comments after the last.
     for (let eventIndex = 0; eventIndex <= events.length; eventIndex++) {
         (commentsByEventIndex.get(eventIndex) || []).forEach(emitComment);
         if (eventIndex < events.length) {
             const event = events[eventIndex];
-            content += `<div class="line" data-line-index="${eventIndex}">${escapeHtml(JSON.stringify(event))}</div>`;
+            content += `<div class="line py-0.5 px-2 rounded ${eventIndex === currentIndex-1 ? 'bg-sky-900/30' : ''}" data-line-index="${eventIndex}">${escapeHtml(JSON.stringify(event))}</div>`;
         }
     }
-
     rawContent.innerHTML = content;
 }
-
 
 function play() {
     isPlaying = true;
     playbackEvents = getFlattenedEvents();
+    recomputeTiming();
     if (playbackEvents.length === 0) {
         isPlaying = false;
         updateButtonUI();
         return;
     }
     updateButtonUI();
-    
     function scheduleNextFrame() {
-        if (!isPlaying) {
-            return;
-        }
-
+        if (!isPlaying) return;
         if (currentIndex >= playbackEvents.length) {
             if (loopEnabled) {
-                // Restart the cast from the beginning and keep playing
                 currentIndex = 0;
                 term.clear();
                 updateActiveEventMarker();
@@ -1230,12 +887,8 @@ function play() {
                 return;
             }
         }
-
         const [delay, eventType, data] = playbackEvents[currentIndex];
-
         const timeoutId = setTimeout(() => {
-            // Output drives the terminal; resize adjusts geometry. Input,
-            // marker and exit events are metadata only and are logged.
             if (eventType === 'o' || eventType === 'r') {
                 applyTerminalEvent(eventType, data);
             } else if (eventType === 'i') {
@@ -1247,7 +900,6 @@ function play() {
             } else {
                 console.log(`Event ${eventType}:`, data);
             }
-            
             currentIndex++;
             updateActiveEventMarker();
             scheduleNextFrame();
@@ -1256,26 +908,28 @@ function play() {
     }
     scheduleNextFrame();
 }
-
 function updateButtonUI() {
     if (isPlaying) {
         playPauseText.textContent = 'Pause';
-        playIcon.style.display = 'none';
-        pauseIcon.style.display = 'inline-block';
+        playIcon.classList.add('hidden');
+        pauseIcon.classList.remove('hidden');
+        playPauseBtn.classList.remove('bg-sky-600','hover:bg-sky-500');
+        playPauseBtn.classList.add('bg-amber-600','hover:bg-amber-500');
     } else {
         playPauseText.textContent = 'Play';
-        playIcon.style.display = 'inline-block';
-        pauseIcon.style.display = 'none';
+        playIcon.classList.remove('hidden');
+        pauseIcon.classList.add('hidden');
+        playPauseBtn.classList.remove('bg-amber-600','hover:bg-amber-500');
+        playPauseBtn.classList.add('bg-sky-600','hover:bg-sky-500');
     }
 }
-
 function pause() {
     isPlaying = false;
     timeouts.forEach(clearTimeout);
     timeouts = [];
     updateButtonUI();
+    updateScrubberUI();
 }
-
 function reset() {
     pause();
     currentIndex = 0;
@@ -1284,23 +938,18 @@ function reset() {
     updateButtonUI();
     updateActiveEventMarker();
 }
-
 function seekTo(globalIndex) {
-    if (isPlaying) return;
-    pause();
-
+    if (isPlaying) pause();
     playbackEvents = getFlattenedEvents();
+    recomputeTiming();
     globalIndex = Math.max(0, Math.min(globalIndex, playbackEvents.length));
-
     currentIndex = globalIndex;
     term.clear();
-
     for (let i = 0; i < currentIndex; i++) {
         const [, eventType, data] = playbackEvents[i];
         applyTerminalEvent(eventType, data);
     }
     if (fitAddon) fitAddon.fit();
-
     updateButtonUI();
     updateActiveEventMarker();
 }
@@ -1310,7 +959,10 @@ playPauseBtn.addEventListener('click', () => isPlaying ? pause() : play());
 resetBtn.addEventListener('click', reset);
 loopBtn.addEventListener('click', () => {
     loopEnabled = !loopEnabled;
-    loopBtn.classList.toggle('active', loopEnabled);
+    loopBtn.classList.toggle('bg-sky-600', loopEnabled);
+    loopBtn.classList.toggle('text-white', loopEnabled);
+    loopBtn.classList.toggle('border-sky-500', loopEnabled);
+    loopBtn.classList.toggle('bg-zinc-800', !loopEnabled);
     loopBtn.setAttribute('aria-pressed', String(loopEnabled));
 });
 
@@ -1318,27 +970,25 @@ timelineEditor.addEventListener('change', (e) => {
     const target = e.target;
     const chunkIndex = parseInt(target.dataset.chunkIndex, 10);
     const eventIndex = parseInt(target.dataset.eventIndex, 10);
-
     if (target.classList.contains('delay-input')) {
         updateDelayFromUI(chunkIndex, eventIndex, target);
     } else if (target.classList.contains('content-input')) {
         updateDataFromUI(chunkIndex, eventIndex, 'content', target.value);
     } else if (target.classList.contains('chunk-comment')) {
-        // Update chunk comment
         if (!isNaN(chunkIndex) && chunkIndex < recordingChunks.length) {
             const commentValue = target.value.trim();
             setChunkComment(recordingChunks[chunkIndex], commentValue ? `# ${commentValue}` : null);
-            renderRawView(); // Update raw view to reflect comment changes
+            renderRawView();
+            updateHorizontalTimeline();
         }
     }
 });
 
 timelineEditor.addEventListener('click', (e) => {
     const item = e.target.closest('.event-item');
-    if (item && item.dataset.globalIndex) {
+    if (item && item.dataset.globalIndex && !e.target.closest('input') && !e.target.closest('button')) {
         seekTo(parseInt(item.dataset.globalIndex, 10) + 1);
     }
-    
     const removeBtn = e.target.closest('.remove-btn');
     if (removeBtn) {
         const chunkIndex = parseInt(removeBtn.dataset.chunkIndex, 10);
@@ -1351,177 +1001,117 @@ timelineEditor.addEventListener('click', (e) => {
         renderTimeline();
         playbackEvents = getFlattenedEvents();
         renderRawView();
+        updateHorizontalTimeline();
+        if (currentIndex > globalEventIndex) currentIndex = Math.max(0, currentIndex - 1);
+        updateScrubberUI();
     }
-    
     const speedBtn = e.target.closest('.speed-btn');
     if(speedBtn) {
         const chunkIndex = parseInt(speedBtn.dataset.chunkIndex, 10);
         const chunk = recordingChunks[chunkIndex];
-        
-        // Save current checkbox states for this chunk before any modifications
         const checkboxStates = {};
         const chunkEventCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
         chunkEventCheckboxes.forEach((checkbox, index) => {
             checkboxStates[index] = checkbox.checked;
         });
-        
-        // Get selected events for this chunk
         const selectedEventIndices = [];
         chunkEventCheckboxes.forEach((checkbox, index) => {
-            if (checkbox.checked) {
-                selectedEventIndices.push(index);
-            }
+            if (checkbox.checked) selectedEventIndices.push(index);
         });
-        
-        // If no events are selected, do nothing
-        if (selectedEventIndices.length === 0) {
-            return;
-        }
-        
-        // Cycle through speeds: 1x -> 2x -> 4x -> 8x -> 1x
+        if (selectedEventIndices.length === 0) return;
         const speedCycle = [1, 2, 4, 8];
         const currentSpeedIndex = speedCycle.indexOf(chunk.speed);
         const newSpeed = speedCycle[(currentSpeedIndex + 1) % speedCycle.length];
-        
-        // Apply speed change only to selected events
         const speedFactor = newSpeed / chunk.speed;
         selectedEventIndices.forEach(eventIndex => {
-            if (chunk.events[eventIndex]) {
-                chunk.events[eventIndex][0] = chunk.events[eventIndex][0] / speedFactor; // Divide delay by speed factor
-            }
+            if (chunk.events[eventIndex]) chunk.events[eventIndex][0] = chunk.events[eventIndex][0] / speedFactor;
         });
-        
         chunk.speed = newSpeed;
-        speedBtn.textContent = `Speed Up ${chunk.speed}x`;
+        speedBtn.textContent = `Speed ${chunk.speed}x`;
         speedBtn.setAttribute('data-speed', chunk.speed);
-        speedBtn.classList.toggle('active', chunk.speed > 1);
-        
-        // Update only the timing values in the UI without full re-render to preserve checkbox states
         selectedEventIndices.forEach(eventIndex => {
             const delayInput = document.querySelector(`input.delay-input[data-chunk-index="${chunkIndex}"][data-event-index="${eventIndex}"]`);
-            if (delayInput && chunk.events[eventIndex]) {
-                delayInput.value = chunk.events[eventIndex][0].toFixed(6);
-            }
+            if (delayInput && chunk.events[eventIndex]) delayInput.value = chunk.events[eventIndex][0].toFixed(6);
         });
-        
-        // Restore checkbox states after updating delay inputs
         setTimeout(() => {
             const updatedCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
             updatedCheckboxes.forEach((checkbox, index) => {
-                if (checkboxStates.hasOwnProperty(index)) {
-                    checkbox.checked = checkboxStates[index];
-                }
+                if (checkboxStates.hasOwnProperty(index)) checkbox.checked = checkboxStates[index];
             });
-            
-            // Update select-all checkbox state
             const selectAllCheckbox = document.querySelector(`.select-all-checkbox[data-chunk-index="${chunkIndex}"]`);
             if (selectAllCheckbox) {
                 const checkedCount = Object.values(checkboxStates).filter(checked => checked).length;
                 const totalCount = Object.keys(checkboxStates).length;
-                
-                if (checkedCount === 0) {
-                    selectAllCheckbox.checked = false;
-                    selectAllCheckbox.indeterminate = false;
-                } else if (checkedCount === totalCount) {
-                    selectAllCheckbox.checked = true;
-                    selectAllCheckbox.indeterminate = false;
-                } else {
-                    selectAllCheckbox.checked = false;
-                    selectAllCheckbox.indeterminate = true;
-                }
+                if (checkedCount === 0) { selectAllCheckbox.checked = false; selectAllCheckbox.indeterminate = false; }
+                else if (checkedCount === totalCount) { selectAllCheckbox.checked = true; selectAllCheckbox.indeterminate = false; }
+                else { selectAllCheckbox.checked = false; selectAllCheckbox.indeterminate = true; }
             }
         }, 50);
-        
-        // Update playback events and raw view
         playbackEvents = getFlattenedEvents();
         renderRawView();
-        
-        // If currently playing, restart from current position to apply speed changes
+        updateHorizontalTimeline();
         if (isPlaying) {
             const wasPlaying = isPlaying;
             const currentPos = currentIndex;
             pause();
             currentIndex = currentPos;
-            if (wasPlaying) {
-                play();
-            }
+            if (wasPlaying) play();
         }
     }
-    
-    // Handle "Add Marker" button clicks for chunks
     const addMarkerBtn = e.target.closest('.add-marker-btn');
     if (addMarkerBtn) {
         const chunkIndex = parseInt(addMarkerBtn.dataset.chunkIndex, 10);
         const chunk = recordingChunks[chunkIndex];
-        
-        // Add marker at the beginning of the chunk
         const markerEvent = [0.1, "m", `Marker for Chunk ${chunkIndex + 1}`];
         shiftCommentsForInsertion(chunk.startIndex);
         chunk.events.unshift(markerEvent);
         refreshChunkStartIndexes();
         syncChunkComments(recordingChunks);
-        
         renderTimeline();
         playbackEvents = getFlattenedEvents();
         renderRawView();
+        updateHorizontalTimeline();
     }
-    
-    // Handle "Insert Marker" button clicks for individual events
     const insertMarkerBtn = e.target.closest('.insert-marker-btn');
     if (insertMarkerBtn) {
         const chunkIndex = parseInt(insertMarkerBtn.dataset.chunkIndex, 10);
         const eventIndex = parseInt(insertMarkerBtn.dataset.eventIndex, 10);
         const chunk = recordingChunks[chunkIndex];
-        
-        // Insert marker after the selected event
         const markerEvent = [0.1, "m", `Marker after event ${eventIndex + 1}`];
         shiftCommentsForInsertion(chunk.startIndex + eventIndex + 1);
         chunk.events.splice(eventIndex + 1, 0, markerEvent);
         refreshChunkStartIndexes();
         syncChunkComments(recordingChunks);
-        
         renderTimeline();
         playbackEvents = getFlattenedEvents();
         renderRawView();
+        updateHorizontalTimeline();
     }
-    
-    // Handle select all checkbox
     const selectAllCheckbox = e.target.closest('.select-all-checkbox');
     if (selectAllCheckbox) {
         const chunkIndex = parseInt(selectAllCheckbox.dataset.chunkIndex, 10);
         const isChecked = selectAllCheckbox.checked;
-        
-        // Update all event checkboxes in this chunk
         const eventCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
-        eventCheckboxes.forEach(checkbox => {
-            checkbox.checked = isChecked;
-        });
+        eventCheckboxes.forEach(checkbox => { checkbox.checked = isChecked; });
         return;
     }
-    
-    // Handle individual event checkbox changes
     const eventCheckbox = e.target.closest('.event-checkbox');
     if (eventCheckbox) {
         const chunkIndex = parseInt(eventCheckbox.dataset.chunkIndex, 10);
-        
-        // Update select all checkbox state
         const eventCheckboxes = document.querySelectorAll(`.event-checkbox[data-chunk-index="${chunkIndex}"]`);
         const checkedCount = Array.from(eventCheckboxes).filter(cb => cb.checked).length;
         const selectAll = document.querySelector(`.select-all-checkbox[data-chunk-index="${chunkIndex}"]`);
-        
         if (selectAll) {
             selectAll.checked = checkedCount === eventCheckboxes.length;
             selectAll.indeterminate = checkedCount > 0 && checkedCount < eventCheckboxes.length;
         }
         return;
     }
-
     const chunkHeader = e.target.closest('.chunk-header');
-    if (chunkHeader && !e.target.closest('.speed-btn') && !e.target.closest('.add-marker-btn') && !e.target.closest('.select-all-control')) {
+    if (chunkHeader && !e.target.closest('.speed-btn') && !e.target.closest('.add-marker-btn') && !e.target.closest('.select-all-control') && !e.target.closest('.chunk-comment')) {
         const chunkEvents = chunkHeader.nextElementSibling;
         const toggle = chunkHeader.querySelector('.chunk-toggle');
         const isCollapsed = chunkEvents.classList.contains('collapsed');
-        
         if (isCollapsed) {
             chunkEvents.classList.remove('collapsed');
             toggle.classList.remove('collapsed');
@@ -1534,7 +1124,6 @@ timelineEditor.addEventListener('click', (e) => {
     }
 });
 
-
 addEventBtn.addEventListener('click', () => {
     if (recordingChunks.length > 0) {
         shiftCommentsForInsertion(getFlattenedEvents().length);
@@ -1544,7 +1133,18 @@ addEventBtn.addEventListener('click', () => {
         renderTimeline();
         playbackEvents = getFlattenedEvents();
         renderRawView();
+        updateHorizontalTimeline();
         timelineEditor.scrollTop = timelineEditor.scrollHeight;
+    } else {
+        // if no chunks, create one
+        recordingChunks.push(newChunk(0));
+        recordingChunks[0].events.push([0.1, "o", ""]);
+        recordingChunks[0].comment = "# Chunk 1: Output";
+        recordingChunks[0].commentIsGenerated = true;
+        renderTimeline();
+        playbackEvents = getFlattenedEvents();
+        renderRawView();
+        updateHorizontalTimeline();
     }
 });
 
@@ -1552,66 +1152,30 @@ uploadBtn.addEventListener('click', () => fileUploader.click());
 fileUploader.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > MAX_FILE_BYTES) {
-        showStatus('File too large (limit 50 MB)');
-        return;
-    }
+    if (file.size > MAX_FILE_BYTES) { showStatus('File too large (limit 50 MB)'); return; }
     const reader = new FileReader();
     reader.onload = (event) => {
         try {
             const lines = String(event.target.result).split('\n');
-
             let uploadedHeader;
-            try {
-                uploadedHeader = JSON.parse(lines[0]);
-            } catch (err) {
-                throw new Error('Invalid header: the first line must be a JSON object');
-            }
-            if (!uploadedHeader || typeof uploadedHeader !== 'object' || Array.isArray(uploadedHeader)) {
-                throw new Error('Invalid header: the first line must be a JSON object');
-            }
-            if (typeof uploadedHeader.version !== 'number' || ![2, 3].includes(uploadedHeader.version)) {
-                throw new Error('Unsupported cast version (expected 2 or 3)');
-            }
-
-            // Parse events and comments; any invalid line rejects the whole
-            // file so a broken cast can never silently lose data
+            try { uploadedHeader = JSON.parse(lines[0]); } catch (err) { throw new Error('Invalid header: the first line must be a JSON object'); }
+            if (!uploadedHeader || typeof uploadedHeader !== 'object' || Array.isArray(uploadedHeader)) throw new Error('Invalid header: the first line must be a JSON object');
+            if (typeof uploadedHeader.version !== 'number' || ![2, 3].includes(uploadedHeader.version)) throw new Error('Unsupported cast version (expected 2 or 3)');
             const items = [];
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
-                if (line.startsWith('#')) {
-                    items.push({ type: 'comment', text: line });
-                    continue;
-                }
+                if (line.startsWith('#')) { items.push({ type: 'comment', text: line }); continue; }
                 let parsedEvent;
-                try {
-                    parsedEvent = JSON.parse(line);
-                } catch (err) {
-                    throw new Error(`Line ${i + 1}: invalid JSON`);
-                }
-                if (!Array.isArray(parsedEvent) || parsedEvent.length < 3) {
-                    throw new Error(`Line ${i + 1}: event must be [delay, type, data]`);
-                }
-                if (typeof parsedEvent[0] !== 'number' || !Number.isFinite(parsedEvent[0]) || parsedEvent[0] < 0) {
-                    throw new Error(`Line ${i + 1}: delay must be a non-negative number`);
-                }
-                if (typeof parsedEvent[1] !== 'string') {
-                    throw new Error(`Line ${i + 1}: event type must be a string`);
-                }
-                if (typeof parsedEvent[2] !== 'string') {
-                    throw new Error(`Line ${i + 1}: event data must be a string`);
-                }
+                try { parsedEvent = JSON.parse(line); } catch (err) { throw new Error(`Line ${i + 1}: invalid JSON`); }
+                if (!Array.isArray(parsedEvent) || parsedEvent.length < 3) throw new Error(`Line ${i + 1}: event must be [delay, type, data]`);
+                if (typeof parsedEvent[0] !== 'number' || !Number.isFinite(parsedEvent[0]) || parsedEvent[0] < 0) throw new Error(`Line ${i + 1}: delay must be a non-negative number`);
+                if (typeof parsedEvent[1] !== 'string') throw new Error(`Line ${i + 1}: event type must be a string`);
+                if (typeof parsedEvent[2] !== 'string') throw new Error(`Line ${i + 1}: event data must be a string`);
                 items.push({ type: 'event', obj: parsedEvent });
             }
-
             const events = items.filter(item => item.type === 'event').map(item => item.obj);
-            if (events.length > MAX_EVENTS) {
-                throw new Error(`Too many events (limit ${MAX_EVENTS})`);
-            }
-
-            // v2 recordings use absolute timestamps; convert them to v3
-            // interval delays so playback timing stays correct
+            if (events.length > MAX_EVENTS) throw new Error(`Too many events (limit ${MAX_EVENTS})`);
             const wasV2 = uploadedHeader.version === 2;
             if (wasV2) {
                 let previousTimestamp = 0;
@@ -1621,32 +1185,23 @@ fileUploader.addEventListener('change', (e) => {
                     previousTimestamp = timestamp;
                 });
             }
-
             pause();
-
             recordingHeader = normalizeHeaderToV3({ ...uploadedHeader });
             loadMetadataToForm();
-
             recordingComments = [];
             let eventIndex = 0;
             items.forEach(item => {
-                if (item.type === 'comment') {
-                    recordingComments.push({ eventIndex, text: item.text });
-                } else {
-                    eventIndex++;
-                }
+                if (item.type === 'comment') recordingComments.push({ eventIndex, text: item.text });
+                else eventIndex++;
             });
             recordingChunks = groupEventsIntoChunks(events);
-
             playbackEvents = getFlattenedEvents();
-
             const cols = parseInt(recordingHeader.term?.cols ?? recordingHeader.width, 10);
             const rows = parseInt(recordingHeader.term?.rows ?? recordingHeader.height ?? recordingHeader.rows, 10);
             if (!isNaN(cols) && !isNaN(rows)) {
                 term.resize(cols, rows);
             }
-            fitAddon.fit();
-
+            if (fitAddon) fitAddon.fit();
             renderTimeline();
             reset();
             showStatus(wasV2 ? 'Cast loaded (v2 converted to v3)' : 'Cast loaded', false);
@@ -1656,8 +1211,9 @@ fileUploader.addEventListener('change', (e) => {
         }
     };
     reader.readAsText(file);
+    // reset input so same file can be re-uploaded
+    e.target.value = '';
 });
-
 function normalizeHeaderToV3(header) {
     const normalized = { ...header };
     if (normalized.version === 2 || normalized.width != null || normalized.height != null || normalized.rows != null) {
@@ -1675,29 +1231,18 @@ function normalizeHeaderToV3(header) {
     if (!Number.isFinite(Number(normalized.term.rows)) || Number(normalized.term.rows) <= 0) normalized.term.rows = 24;
     return normalized;
 }
-
 downloadBtn.addEventListener('click', () => {
-    // Save metadata from form before downloading
     saveMetadataFromForm();
-
-    // Always emit a fully v3-compliant header, regardless of what was loaded
     const downloadHeader = normalizeHeaderToV3(recordingHeader);
-
     console.log('Download header (v3 compliant):', downloadHeader);
     const headerLine = JSON.stringify(downloadHeader);
     let content = headerLine + '\n';
-
     const events = getFlattenedEvents();
     const commentsByEventIndex = getCommentsByEventIndex();
     for (let eventIndex = 0; eventIndex <= events.length; eventIndex++) {
-        (commentsByEventIndex.get(eventIndex) || []).forEach(comment => {
-            content += comment + '\n';
-        });
-        if (eventIndex < events.length) {
-            content += JSON.stringify(events[eventIndex]) + '\n';
-        }
+        (commentsByEventIndex.get(eventIndex) || []).forEach(comment => { content += comment + '\n'; });
+        if (eventIndex < events.length) content += JSON.stringify(events[eventIndex]) + '\n';
     }
-    
     const blob = new Blob([content], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1708,102 +1253,149 @@ downloadBtn.addEventListener('click', () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 });
-
-// --- METADATA FUNCTIONS ---
 function loadMetadataToForm() {
-    // Assign every field so values from a previously loaded cast cannot
-    // leak into the current one when a field is missing
     castTitle.value = recordingHeader.title || '';
     castCommand.value = recordingHeader.command || '';
-    if (Array.isArray(recordingHeader.tags)) {
-        castTags.value = recordingHeader.tags.join(', ');
-    } else {
-        castTags.value = recordingHeader.tags || '';
-    }
+    if (Array.isArray(recordingHeader.tags)) castTags.value = recordingHeader.tags.join(', ');
+    else castTags.value = recordingHeader.tags || '';
 }
-
 function saveMetadataFromForm() {
-    // Update header with form values
-    if (castTitle.value.trim()) {
-        recordingHeader.title = castTitle.value.trim();
-    } else {
-        delete recordingHeader.title;
-    }
-    
-    if (castCommand.value.trim()) {
-        recordingHeader.command = castCommand.value.trim();
-    } else {
-        delete recordingHeader.command;
-    }
-    
-    if (castTags.value.trim()) {
-        // Convert comma-separated string to array
-        recordingHeader.tags = castTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
-    } else {
-        delete recordingHeader.tags;
-    }
+    if (castTitle.value.trim()) recordingHeader.title = castTitle.value.trim();
+    else delete recordingHeader.title;
+    if (castCommand.value.trim()) recordingHeader.command = castCommand.value.trim();
+    else delete recordingHeader.command;
+    if (castTags.value.trim()) recordingHeader.tags = castTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
+    else delete recordingHeader.tags;
 }
-
 promptPatternInput.addEventListener('change', () => {
     promptPattern = promptPatternInput.value.trim();
     promptRegex = buildPromptRegex();
     try { localStorage.setItem('ascinemaeditor.promptPattern', promptPattern); } catch (e) {}
     if (recordingChunks.length > 0) rechunkWithCurrentPrompt();
 });
-
-tabNav.addEventListener('click', (e) => {
-    const tabButton = e.target.closest('.tab-btn');
-    if(tabButton) {
-        const tabId = tabButton.dataset.tab;
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-        tabButton.classList.add('active');
-        document.getElementById(`${tabId}Tab`).classList.add('active');
-        // Fit the terminal when its tab becomes visible
-        if (tabId === 'preview' && fitAddon && term) {
-            // Use a timeout to ensure the container has its final dimensions
-            setTimeout(() => {
-                fitAddon.fit();
-                // Double-check after a bit more time for complex layouts
-                setTimeout(() => fitAddon.fit(), 200);
-            }, 50);
+if (tabNav) {
+    tabNav.addEventListener('click', (e) => {
+        const tabButton = e.target.closest('.tab-btn');
+        if(tabButton) {
+            const tabId = tabButton.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active','bg-white','text-zinc-900','shadow');
+                btn.classList.add('text-zinc-400');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+                content.classList.add('hidden');
+            });
+            tabButton.classList.add('active','bg-white','text-zinc-900','shadow');
+            tabButton.classList.remove('text-zinc-400');
+            const target = document.getElementById(`${tabId}Tab`);
+            if (target) {
+                target.classList.add('active');
+                target.classList.remove('hidden');
+                if (tabId === 'preview') target.classList.add('flex');
+            }
+            if (tabId === 'preview' && fitAddon && term) {
+                setTimeout(() => { fitAddon.fit(); setTimeout(() => fitAddon.fit(), 200); }, 50);
+            }
         }
+    });
+}
+
+// --- SLIDER INTERACTIONS ---
+if (timelineSlider) {
+    timelineSlider.addEventListener('input', (e) => {
+        const pct = Number(e.target.value) / 1000;
+        const targetTime = pct * (totalDuration || 0);
+        // if no duration, fallback to index based
+        let targetIdx;
+        if (totalDuration > 0) targetIdx = timeToIndex(targetTime);
+        else targetIdx = Math.round(pct * playbackEvents.length);
+        if (isPlaying) pause();
+        seekTo(targetIdx);
+    });
+}
+if (timelineTrack) {
+    timelineTrack.addEventListener('click', (e) => {
+        if (e.target === timelineSlider) return;
+        const rect = timelineTrack.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const pct = Math.max(0, Math.min(1, x / rect.width));
+        const targetTime = pct * (totalDuration || 0);
+        let targetIdx = totalDuration > 0 ? timeToIndex(targetTime) : Math.round(pct * playbackEvents.length);
+        if (isPlaying) pause();
+        seekTo(targetIdx);
+    });
+}
+if (prevChunkBtn) {
+    prevChunkBtn.addEventListener('click', () => {
+        if (recordingChunks.length===0) return;
+        // find current chunk
+        let curChunkIdx = 0;
+        for (let i=0;i<recordingChunks.length;i++) {
+            const c = recordingChunks[i];
+            if (currentIndex >= c.startIndex && currentIndex < c.startIndex + c.events.length) { curChunkIdx = i; break; }
+            if (currentIndex >= c.startIndex + c.events.length) curChunkIdx = i;
+        }
+        const prev = Math.max(0, curChunkIdx - 1);
+        seekTo(recordingChunks[prev].startIndex + 1);
+    });
+}
+if (nextChunkBtn) {
+    nextChunkBtn.addEventListener('click', () => {
+        if (recordingChunks.length===0) return;
+        let curChunkIdx = 0;
+        for (let i=0;i<recordingChunks.length;i++) {
+            const c = recordingChunks[i];
+            if (currentIndex >= c.startIndex && currentIndex <= c.startIndex + c.events.length) { curChunkIdx = i; break; }
+        }
+        const next = Math.min(recordingChunks.length - 1, curChunkIdx + 1);
+        seekTo(recordingChunks[next].startIndex + 1);
+    });
+}
+// keyboard scrubbing: left/right arrows when not editing
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        seekTo(Math.max(0, currentIndex - 1));
+    } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        seekTo(Math.min(playbackEvents.length, currentIndex + 1));
+    } else if (e.key === ' ') {
+        e.preventDefault();
+        isPlaying ? pause() : play();
     }
 });
 
-// --- INITIALIZATION ---
-function initialize() {
-    // Get theme from v3 header if available
+// --- INITIALIZATION (ghostty-web) ---
+async function initialize() {
+    try { await init(); } catch (e) { console.error('ghostty-web init failed', e); showStatus('Failed to initialize terminal (ghostty-web)'); return; }
     const headerTheme = recordingHeader.term?.theme;
     let terminalTheme = {
-        background: '#282c34',
-        foreground: '#abb2bf',
+        background: '#1a1b26',
+        foreground: '#c0caf5',
         cursor: '#e06c75',
-        selectionBackground: '#5c6370',
-        black: '#282c34',
-        red: '#e06c75',
-        green: '#98c379',
-        yellow: '#e5c07b',
-        blue: '#61afef',
-        magenta: '#c678dd',
-        cyan: '#56b6c2',
-        white: '#abb2bf',
-        brightBlack: '#5c6370',
-        brightRed: '#e06c75',
-        brightGreen: '#98c379',
-        brightYellow: '#e5c07b',
-        brightBlue: '#61afef',
-        brightMagenta: '#c678dd',
-        brightCyan: '#56b6c2',
+        selectionBackground: '#364A82',
+        black: '#414868',
+        red: '#f7768e',
+        green: '#9ece6a',
+        yellow: '#e0af68',
+        blue: '#7aa2f7',
+        magenta: '#bb9af7',
+        cyan: '#7dcfff',
+        white: '#c0caf5',
+        brightBlack: '#414868',
+        brightRed: '#f7768e',
+        brightGreen: '#9ece6a',
+        brightYellow: '#e0af68',
+        brightBlue: '#7aa2f7',
+        brightMagenta: '#bb9af7',
+        brightCyan: '#7dcfff',
         brightWhite: '#ffffff'
     };
-    
-    // Apply v3 theme if present
     if (headerTheme) {
         if (headerTheme.fg) terminalTheme.foreground = headerTheme.fg;
         if (headerTheme.bg) terminalTheme.background = headerTheme.bg;
-        
-        // Parse palette colors if present
         if (headerTheme.palette) {
             const colors = headerTheme.palette.split(':');
             if (colors.length >= 8) {
@@ -1815,8 +1407,6 @@ function initialize() {
                 terminalTheme.magenta = colors[5] || terminalTheme.magenta;
                 terminalTheme.cyan = colors[6] || terminalTheme.cyan;
                 terminalTheme.white = colors[7] || terminalTheme.white;
-                
-                // Bright colors (if 16-color palette)
                 if (colors.length >= 16) {
                     terminalTheme.brightBlack = colors[8] || terminalTheme.brightBlack;
                     terminalTheme.brightRed = colors[9] || terminalTheme.brightRed;
@@ -1830,51 +1420,47 @@ function initialize() {
             }
         }
     }
-
+    // ghostty-web Terminal options are xterm-compatible subset
     term = new Terminal({
         cursorBlink: true,
-        // Don't set fixed rows/cols, let FitAddon handle sizing
         fontFamily: "'Fira Code', monospace",
         fontSize: 14,
-        scrollback: 1000, // Limit scrollback for better performance
-        convertEol: true, // Handle line endings properly
+        scrollback: 1000,
+        convertEol: true,
         theme: terminalTheme
     });
-    fitAddon = new FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
+    fitAddon = new FitAddon();
+    try { term.loadAddon(fitAddon); } catch(e) { console.warn('FitAddon load failed', e); }
     term.open(terminalContainer);
-    
-    // Fit the terminal after it's opened and the container has dimensions
-    setTimeout(() => {
-        fitAddon.fit();
-    }, 100);
-    
-    // Debounced resize handler for better performance
+    setTimeout(() => { try { fitAddon.fit(); } catch(e){} }, 100);
     let resizeTimeout;
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-            if (fitAddon && term) {
-                fitAddon.fit();
-            }
-        }, 100);
+        resizeTimeout = setTimeout(() => { if (fitAddon && term) { try { fitAddon.fit(); } catch(e){} } }, 100);
     });
-
     promptPatternInput.value = promptPattern;
     recordingChunks = groupEventsIntoChunks(initialRecordingData.events);
     playbackEvents = getFlattenedEvents();
+    // initial term size from header
+    const initCols = parseInt(recordingHeader.term?.cols,10) || 80;
+    const initRows = parseInt(recordingHeader.term?.rows,10) || 24;
+    try { term.resize(initCols, initRows); } catch(e){}
     renderTimeline();
     renderRawView();
+    updateHorizontalTimeline();
     reset();
+    // observe container resize for fit
+    if (fitAddon && typeof fitAddon.observeResize === 'function') {
+        try { fitAddon.observeResize(); } catch(e){}
+    }
 }
 
-// --- METADATA EVENT LISTENERS ---
+// metadata listeners
 castTitle.addEventListener('input', saveMetadataFromForm);
 castCommand.addEventListener('input', saveMetadataFromForm);
 castTags.addEventListener('input', saveMetadataFromForm);
 
 initialize();
-
 </script>
 </body>
 </html>
