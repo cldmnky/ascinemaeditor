@@ -668,7 +668,9 @@ function groupEventsIntoChunks(events) {
 
     events.forEach(event => {
         const data = event[2];
-        const isPromptEvent = data.includes('bash-5.3$');
+        // Detect shell prompts ending with "$ " including those with ANSI escape sequences
+        // This regex matches: any text ending with "$ " (including ANSI sequences after the $)
+        const isPromptEvent = /\$(\s|\x1b\[[\d;]*m|\s*$)/.test(data);
 
         if (isPromptEvent && currentChunk.events.length > 0) {
             // Generate comment for the chunk based on content
