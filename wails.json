@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ascinemaeditor",
+  "outputfilename": "ascinemaeditor",
+  "author": {
+    "name": "mbengtss",
+    "email": "mbengtss@redhat.com"
+  },
+  "info": {
+    "companyName": "ascinemaeditor",
+    "productName": "Asciinema Editor",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright (c) 2026",
+    "comments": "Desktop editor for asciinema cast files"
+  }
+}
