@@ -1,6 +1,12 @@
+<p align="center">
+  <img src="docs/assets/img/logo.svg" alt="Asciinema Editor — Vault-Tec Approved logo" width="180" height="180">
+</p>
+
 # Asciinema Editor
 
 A desktop (Wails) + browser editor for asciinema cast files. Edit event timing and output, preview the recording in a terminal, then save an updated `.cast` file.
+
+> **📚 Full documentation: [https://cldmnky.github.io/ascinemaeditor/](https://cldmnky.github.io/ascinemaeditor/)** — the complete end-user guide (installation, quickstart, timeline, editing, playback, prompt detection, metadata, file format, troubleshooting, releases) is published from [`docs/`](docs/) via GitHub Pages on every push to `main`.
 
 ## Features
 
