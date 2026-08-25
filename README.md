@@ -99,6 +99,7 @@ Some control-only output events, such as a bare newline or bell, are displayed a
 
 - **Play** replays the edited cast with its current delays.
 - Select an event row to seek the preview through that event.
+- **Loop** restarts playback from the beginning whenever it reaches the end, until toggled off or stopped.
 - **Reset** clears playback and returns to the first event.
 - Select **Raw .cast** to inspect the exact serialized event stream. Comments remain in the same position they will have in the downloaded file.
 

@@ -236,6 +236,11 @@
         }
         .controls button:hover { background-color: var(--button-hover-bg); }
         .controls button svg { width: 16px; height: 16px; }
+        .controls button.active {
+            background-color: var(--accent-color);
+            color: #282c34;
+        }
+        .controls button.active:hover { background-color: var(--highlight-bg); }
 
         /* Editor Panel Styles */
         .timeline-editor {
@@ -605,6 +610,10 @@
                     <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
                     <span id="playPauseText">Play</span>
                 </button>
+                <button id="loopBtn" aria-pressed="false" title="Loop playback">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"></path></svg>
+                    Loop
+                </button>
                 <button id="resetBtn">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg>
                     Reset
@@ -663,6 +672,7 @@ const playPauseText = document.getElementById('playPauseText');
 const playIcon = document.getElementById('play-icon');
 const pauseIcon = document.getElementById('pause-icon');
 const resetBtn = document.getElementById('resetBtn');
+const loopBtn = document.getElementById('loopBtn');
 const timelineEditor = document.getElementById('timelineEditor');
 const addEventBtn = document.getElementById('addEventBtn');
 const uploadBtn = document.getElementById('uploadBtn');
@@ -733,6 +743,7 @@ let timeouts = [];
 let isPlaying = false;
 let currentIndex = 0;
 let playbackEvents = [];
+let loopEnabled = false;
 let term;
 let fitAddon;
 
@@ -1196,12 +1207,28 @@ function renderRawView() {
 function play() {
     isPlaying = true;
     playbackEvents = getFlattenedEvents();
+    if (playbackEvents.length === 0) {
+        isPlaying = false;
+        updateButtonUI();
+        return;
+    }
     updateButtonUI();
     
     function scheduleNextFrame() {
-        if (!isPlaying || currentIndex >= playbackEvents.length) {
-            pause();
+        if (!isPlaying) {
             return;
+        }
+
+        if (currentIndex >= playbackEvents.length) {
+            if (loopEnabled) {
+                // Restart the cast from the beginning and keep playing
+                currentIndex = 0;
+                term.clear();
+                updateActiveEventMarker();
+            } else {
+                pause();
+                return;
+            }
         }
 
         const [delay, eventType, data] = playbackEvents[currentIndex];
@@ -1281,6 +1308,11 @@ function seekTo(globalIndex) {
 // --- EVENT LISTENERS ---
 playPauseBtn.addEventListener('click', () => isPlaying ? pause() : play());
 resetBtn.addEventListener('click', reset);
+loopBtn.addEventListener('click', () => {
+    loopEnabled = !loopEnabled;
+    loopBtn.classList.toggle('active', loopEnabled);
+    loopBtn.setAttribute('aria-pressed', String(loopEnabled));
+});
 
 timelineEditor.addEventListener('change', (e) => {
     const target = e.target;
