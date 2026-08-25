@@ -1,31 +1,49 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
-	"path/filepath"
+	"time"
 )
+
+//go:embed index.html
+var indexHTML []byte
 
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-
-	// Get the directory where the executable is located
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
-	if err != nil {
-		log.Fatal(err)
+	host := os.Getenv("HOST")
+	if host == "" {
+		host = "127.0.0.1"
 	}
 
-	// Serve static files from the current directory
-	fs := http.FileServer(http.Dir("."))
-	http.Handle("/", fs)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(indexHTML)
+	})
 
-	fmt.Printf("Starting server on http://localhost:%s\n", port)
-	fmt.Printf("Serving files from: %s\n", dir)
+	server := &http.Server{
+		Addr:              net.JoinHostPort(host, port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	fmt.Printf("Starting server on http://%s\n", server.Addr)
+
+	log.Fatal(server.ListenAndServe())
 }
