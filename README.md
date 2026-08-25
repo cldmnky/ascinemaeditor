@@ -122,14 +122,25 @@ The prompt setting is stored in the browser's local storage, so it is reused the
 
 ## Troubleshooting
 
-- Start the server from the repository root. The static server uses its current working directory to locate `index.html`.
+- The UI is embedded in the binary, so the server can be started from any directory. It serves only `/`; every other path returns 404.
 - The terminal preview requires access to the xterm.js and font CDNs. Editing and downloading still work without a terminal preview, but the page may not initialize correctly if those scripts cannot load.
 - Invalid cast headers or events are rejected without replacing the recording currently open in the editor. Check that each event is a JSON array containing a non-negative delay, string event type, and string data.
 
+## Releases
+
+Prebuilt binaries for linux/darwin (amd64 + arm64) are published on the [releases page](https://github.com/cldmnky/ascinemaeditor/releases). Download one for your platform and run it directly; the editor ships with built-in sample data so you can start editing immediately. Each release includes SHA256 checksums.
+
+To cut a release, tag `v*` and push the tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 ## File Structure
 
-- `index.html` - Main web application
-- `main.go` - Go web server
+- `index.html` - Main web application (embedded into the binary)
+- `main.go` - Go web server serving the embedded UI
+- `.github/workflows/release.yml` - Tag-triggered release build and publishing
 - `go.mod` - Go module file
 - `Taskfile.yml` - go-task configuration
 - `bin/` - Built binaries (created by build process)
