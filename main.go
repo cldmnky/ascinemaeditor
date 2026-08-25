@@ -21,7 +21,7 @@ type restrictedFileSystem struct {
 }
 
 func (r restrictedFileSystem) Open(name string) (http.File, error) {
-	clean := path.Clean("/" + name)
+	clean := strings.TrimPrefix(path.Clean("/"+name), "/")
 	for _, segment := range strings.Split(clean, "/") {
 		if strings.HasPrefix(segment, ".") {
 			return nil, fs.ErrPermission

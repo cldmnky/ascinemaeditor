@@ -652,6 +652,9 @@ const initialRecordingData = {
 
 let recordingHeader = initialRecordingData.header;
 let recordingChunks = [];
+// Comments are anchored to the number of events that precede them. Keeping
+// them separate from visual chunks preserves their exact stream position.
+let recordingComments = [];
 
 // --- DOM ELEMENTS ---
 const rawContent = document.getElementById('raw-content');
@@ -719,21 +722,7 @@ function isPromptOutput(data) {
 }
 
 function rechunkWithCurrentPrompt() {
-    // Regroup events with the current prompt pattern while preserving any
-    // comments already attached to chunks (matched by their first event).
-    const previousChunks = recordingChunks;
     recordingChunks = groupEventsIntoChunks(getFlattenedEvents());
-    const commentByFirstEvent = new Map();
-    previousChunks.forEach(chunk => {
-        if (chunk.events.length > 0 && chunk.comment != null) {
-            commentByFirstEvent.set(JSON.stringify(chunk.events[0]), chunk.comment);
-        }
-    });
-    recordingChunks.forEach(chunk => {
-        if (chunk.events.length === 0) return;
-        const key = JSON.stringify(chunk.events[0]);
-        if (commentByFirstEvent.has(key)) chunk.comment = commentByFirstEvent.get(key);
-    });
     playbackEvents = getFlattenedEvents();
     renderTimeline();
     renderRawView();
@@ -753,13 +742,106 @@ function getFlattenedEvents() {
     return recordingChunks.flatMap(chunk => chunk.events);
 }
 
+function newChunk(startIndex) {
+    return {
+        speed: 1,
+        events: [],
+        comment: null,
+        commentIsGenerated: false,
+        startIndex
+    };
+}
+
+function syncChunkComments(chunks) {
+    const commentsByEventIndex = new Map();
+    recordingComments.forEach(comment => {
+        const comments = commentsByEventIndex.get(comment.eventIndex) || [];
+        comments.push(comment);
+        commentsByEventIndex.set(comment.eventIndex, comments);
+    });
+
+    chunks.forEach(chunk => {
+        const comments = commentsByEventIndex.get(chunk.startIndex);
+        if (comments?.length) {
+            chunk.comment = comments[0].text;
+            chunk.commentIsGenerated = false;
+            return;
+        }
+
+        const chunkEnd = chunk.startIndex + chunk.events.length;
+        if (recordingComments.some(comment => comment.eventIndex > chunk.startIndex && comment.eventIndex <= chunkEnd)) {
+            // Keep source comments at their precise event positions instead of
+            // adding a generated chunk comment to an uploaded recording.
+            chunk.comment = null;
+            chunk.commentIsGenerated = false;
+        }
+    });
+}
+
+function getCommentsByEventIndex() {
+    const commentsByEventIndex = new Map();
+    const add = (eventIndex, text) => {
+        const comments = commentsByEventIndex.get(eventIndex) || [];
+        comments.push(text);
+        commentsByEventIndex.set(eventIndex, comments);
+    };
+
+    recordingComments.forEach(comment => add(comment.eventIndex, comment.text));
+    recordingChunks.forEach(chunk => {
+        if (chunk.commentIsGenerated && chunk.comment) {
+            add(chunk.startIndex, chunk.comment);
+        }
+    });
+    return commentsByEventIndex;
+}
+
+function refreshChunkStartIndexes() {
+    let eventIndex = 0;
+    recordingChunks.forEach(chunk => {
+        chunk.startIndex = eventIndex;
+        eventIndex += chunk.events.length;
+    });
+}
+
+function shiftCommentsForInsertion(eventIndex) {
+    recordingComments.forEach(comment => {
+        if (comment.eventIndex >= eventIndex) comment.eventIndex++;
+    });
+}
+
+function shiftCommentsForRemoval(eventIndex) {
+    recordingComments.forEach(comment => {
+        if (comment.eventIndex > eventIndex) comment.eventIndex--;
+    });
+}
+
+function setChunkComment(chunk, text) {
+    const commentIndex = recordingComments.findIndex(comment => comment.eventIndex === chunk.startIndex);
+    if (text) {
+        if (commentIndex >= 0) {
+            recordingComments[commentIndex].text = text;
+        } else {
+            recordingComments.push({ eventIndex: chunk.startIndex, text });
+            recordingComments.sort((a, b) => a.eventIndex - b.eventIndex);
+        }
+        chunk.comment = text;
+        chunk.commentIsGenerated = false;
+        return;
+    }
+
+    if (commentIndex >= 0) recordingComments.splice(commentIndex, 1);
+    const nextComment = recordingComments.find(comment => comment.eventIndex === chunk.startIndex);
+    chunk.comment = nextComment?.text || null;
+    chunk.commentIsGenerated = false;
+}
+
 function groupEventsIntoChunks(events) {
     const chunks = [];
     if (events.length === 0) return chunks;
 
-    let currentChunk = { speed: 1, events: [], comment: null, extraLeading: [], trailingComments: [] };
+    let currentChunk = newChunk(0);
 
-    events.forEach(event => {
+    events.forEach((event, eventIndex) => {
         const data = event[2];
         // Detect shell prompts: the configured prompt pattern followed only by
         // spaces and/or ANSI color reset sequences until the end of the output
@@ -768,8 +850,9 @@ function groupEventsIntoChunks(events) {
         if (isPromptEvent && currentChunk.events.length > 0) {
             // Generate comment for the chunk based on content
             currentChunk.comment = generateChunkComment(currentChunk.events, chunks.length + 1);
+            currentChunk.commentIsGenerated = true;
             chunks.push(currentChunk);
-            currentChunk = { speed: 1, events: [], comment: null };
+            currentChunk = newChunk(eventIndex);
         }
 
         currentChunk.events.push(event);
@@ -777,8 +860,10 @@ function groupEventsIntoChunks(events) {
 
     if (currentChunk.events.length > 0) {
         currentChunk.comment = generateChunkComment(currentChunk.events, chunks.length + 1);
+        currentChunk.commentIsGenerated = true;
         chunks.push(currentChunk);
     }
+    syncChunkComments(chunks);
     return chunks;
 }
 
@@ -1087,31 +1172,22 @@ function updateActiveEventMarker() {
 
 function renderRawView() {
     let content = '';
-    let lineIndex = 0;
-    let eventIndex = 0; // Separate counter for events only
+    const events = getFlattenedEvents();
+    const commentsByEventIndex = getCommentsByEventIndex();
 
     const emitComment = (text) => {
         content += `<div class="line comment">${escapeHtml(text)}</div>`;
-        lineIndex++;
     };
 
-    recordingChunks.forEach((chunk, chunkIndex) => {
-        // Add chunk comments: extra leading comments, then the primary one
-        (chunk.extraLeading || []).forEach(emitComment);
-        if (chunk.comment) {
-            emitComment(chunk.comment);
-        }
-
-        // Add chunk events; only event lines carry data-line-index so the
-        // active-event highlight can never attach to a comment line
-        chunk.events.forEach(event => {
+    // Emit the same ordered stream that download creates: all comments before
+    // an event, the event itself, then any trailing comments after the last.
+    for (let eventIndex = 0; eventIndex <= events.length; eventIndex++) {
+        (commentsByEventIndex.get(eventIndex) || []).forEach(emitComment);
+        if (eventIndex < events.length) {
+            const event = events[eventIndex];
             content += `<div class="line" data-line-index="${eventIndex}">${escapeHtml(JSON.stringify(event))}</div>`;
-            lineIndex++;
-            eventIndex++;
-        });
-
-        (chunk.trailingComments || []).forEach(emitComment);
-    });
+        }
+    }
 
     rawContent.innerHTML = content;
 }
@@ -1219,7 +1295,7 @@ timelineEditor.addEventListener('change', (e) => {
         // Update chunk comment
         if (!isNaN(chunkIndex) && chunkIndex < recordingChunks.length) {
             const commentValue = target.value.trim();
-            recordingChunks[chunkIndex].comment = commentValue ? `# ${commentValue}` : null;
+            setChunkComment(recordingChunks[chunkIndex], commentValue ? `# ${commentValue}` : null);
             renderRawView(); // Update raw view to reflect comment changes
         }
     }
@@ -1235,7 +1311,11 @@ timelineEditor.addEventListener('click', (e) => {
     if (removeBtn) {
         const chunkIndex = parseInt(removeBtn.dataset.chunkIndex, 10);
         const eventIndex = parseInt(removeBtn.dataset.eventIndex, 10);
+        const globalEventIndex = recordingChunks[chunkIndex].startIndex + eventIndex;
         recordingChunks[chunkIndex].events.splice(eventIndex, 1);
+        shiftCommentsForRemoval(globalEventIndex);
+        refreshChunkStartIndexes();
+        syncChunkComments(recordingChunks);
         renderTimeline();
         playbackEvents = getFlattenedEvents();
         renderRawView();
@@ -1344,7 +1424,10 @@ timelineEditor.addEventListener('click', (e) => {
         
         // Add marker at the beginning of the chunk
         const markerEvent = [0.1, "m", `Marker for Chunk ${chunkIndex + 1}`];
+        shiftCommentsForInsertion(chunk.startIndex);
         chunk.events.unshift(markerEvent);
+        refreshChunkStartIndexes();
+        syncChunkComments(recordingChunks);
         
         renderTimeline();
         playbackEvents = getFlattenedEvents();
@@ -1360,7 +1443,10 @@ timelineEditor.addEventListener('click', (e) => {
         
         // Insert marker after the selected event
         const markerEvent = [0.1, "m", `Marker after event ${eventIndex + 1}`];
+        shiftCommentsForInsertion(chunk.startIndex + eventIndex + 1);
         chunk.events.splice(eventIndex + 1, 0, markerEvent);
+        refreshChunkStartIndexes();
+        syncChunkComments(recordingChunks);
         
         renderTimeline();
         playbackEvents = getFlattenedEvents();
@@ -1419,7 +1505,10 @@ timelineEditor.addEventListener('click', (e) => {
 
 addEventBtn.addEventListener('click', () => {
     if (recordingChunks.length > 0) {
+        shiftCommentsForInsertion(getFlattenedEvents().length);
         recordingChunks[recordingChunks.length - 1].events.push([0.1, "o", ""]);
+        refreshChunkStartIndexes();
+        syncChunkComments(recordingChunks);
         renderTimeline();
         playbackEvents = getFlattenedEvents();
         renderRawView();
@@ -1496,7 +1585,7 @@ fileUploader.addEventListener('change', (e) => {
                 let previousTimestamp = 0;
                 events.forEach(ev => {
                     const timestamp = ev[0];
-                    ev[0] = Math.max(0.000001, timestamp - previousTimestamp);
+                    ev[0] = Math.max(0, timestamp - previousTimestamp);
                     previousTimestamp = timestamp;
                 });
             }
@@ -1506,45 +1595,16 @@ fileUploader.addEventListener('change', (e) => {
             recordingHeader = normalizeHeaderToV3({ ...uploadedHeader });
             loadMetadataToForm();
 
-            recordingChunks = groupEventsIntoChunks(events);
-
-            // Attach every comment from the source file: leading comments go
-            // to the chunk containing the following event, additional and
-            // trailing comments are preserved alongside the editable one
-            const chunkOfIndex = [];
-            recordingChunks.forEach((chunk, ci) => chunk.events.forEach(() => chunkOfIndex.push(ci)));
-            let pendingComments = [];
-            let eventCursor = 0;
-            const assignedCommentChunks = new Set();
+            recordingComments = [];
+            let eventIndex = 0;
             items.forEach(item => {
                 if (item.type === 'comment') {
-                    pendingComments.push(item.text);
-                    return;
-                }
-                const ci = chunkOfIndex[eventCursor++] ?? recordingChunks.length - 1;
-                const chunk = recordingChunks[ci];
-                if (!chunk) return;
-                if (pendingComments.length > 0) {
-                    if (!assignedCommentChunks.has(ci)) {
-                        // First real comment for this chunk replaces the
-                        // freshly generated placeholder
-                        assignedCommentChunks.add(ci);
-                        chunk.comment = pendingComments[0];
-                        chunk.extraLeading = pendingComments.slice(1);
-                    } else {
-                        chunk.extraLeading = (chunk.extraLeading || []).concat(pendingComments);
-                    }
-                }
-                pendingComments = [];
-            });
-            if (pendingComments.length > 0) {
-                if (recordingChunks.length === 0) {
-                    recordingChunks.push({ speed: 1, events: [], comment: null, extraLeading: [], trailingComments: pendingComments });
+                    recordingComments.push({ eventIndex, text: item.text });
                 } else {
-                    const lastChunk = recordingChunks[recordingChunks.length - 1];
-                    lastChunk.trailingComments = (lastChunk.trailingComments || []).concat(pendingComments);
+                    eventIndex++;
                 }
-            }
+            });
+            recordingChunks = groupEventsIntoChunks(events);
 
             playbackEvents = getFlattenedEvents();
 
@@ -1568,10 +1628,11 @@ fileUploader.addEventListener('change', (e) => {
 
 function normalizeHeaderToV3(header) {
     const normalized = { ...header };
-    if (normalized.version === 2 || normalized.width != null || normalized.height != null) {
+    if (normalized.version === 2 || normalized.width != null || normalized.height != null || normalized.rows != null) {
         normalized.term = normalized.term && typeof normalized.term === 'object' ? { ...normalized.term } : {};
         if (normalized.term.cols == null && normalized.width != null) normalized.term.cols = normalized.width;
         if (normalized.term.rows == null && normalized.height != null) normalized.term.rows = normalized.height;
+        if (normalized.term.rows == null && normalized.rows != null) normalized.term.rows = normalized.rows;
         delete normalized.width;
         delete normalized.height;
         delete normalized.rows;
@@ -1594,22 +1655,16 @@ downloadBtn.addEventListener('click', () => {
     const headerLine = JSON.stringify(downloadHeader);
     let content = headerLine + '\n';
 
-    // Emit chunks with every comment preserved: the primary comment,
-    // additional leading comments, events, then trailing comments
-    recordingChunks.forEach(chunk => {
-        if (chunk.comment) {
-            content += chunk.comment + '\n';
+    const events = getFlattenedEvents();
+    const commentsByEventIndex = getCommentsByEventIndex();
+    for (let eventIndex = 0; eventIndex <= events.length; eventIndex++) {
+        (commentsByEventIndex.get(eventIndex) || []).forEach(comment => {
+            content += comment + '\n';
+        });
+        if (eventIndex < events.length) {
+            content += JSON.stringify(events[eventIndex]) + '\n';
         }
-        (chunk.extraLeading || []).forEach(comment => {
-            content += comment + '\n';
-        });
-        chunk.events.forEach(event => {
-            content += JSON.stringify(event) + '\n';
-        });
-        (chunk.trailingComments || []).forEach(comment => {
-            content += comment + '\n';
-        });
-    });
+    }
     
     const blob = new Blob([content], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
@@ -1791,5 +1846,3 @@ initialize();
 </script>
 </body>
 </html>
-
-
