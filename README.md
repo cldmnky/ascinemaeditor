@@ -112,19 +112,41 @@ The prompt setting is stored in the browser's local storage, so it is reused the
 - In browser mode the terminal preview requires access to the ghostty-web / Tailwind / font CDNs; editing still works but the preview may be blank if they cannot load. The desktop build has the same CDN dependency for those assets.
 - Invalid cast headers or events are rejected without replacing the recording currently open in the editor. Check that each event is a JSON array containing a non-negative delay, string event type, and string data.
 
-## Releases
+## Releases & Artifacts
 
-Prebuilt binaries for linux/darwin (amd64 + arm64) are published on the [releases page](https://github.com/cldmnky/ascinemaeditor/releases). Download one for your platform and run it directly; the editor ships with built-in sample data so you can start editing immediately. Each release includes SHA256 checksums.
+Every tag `v*` produces two kinds of build, published on the [releases page](https://github.com/cldmnky/ascinemaeditor/releases) with SHA256 checksums (`checksums-sha256.txt`):
 
-Desktop (Wails) builds are also published per tag:
+### Desktop apps (Wails) — recommended
 
-- `ascinemaeditor-macos-universal.zip` — signed `.app` bundle for macOS (Intel + Apple Silicon)
-- `ascinemaeditor-windows-amd64.zip` — Windows executable
+Native window, no browser needed. Open/Save use OS file dialogs.
 
-To cut a release, tag `v*` and push the tag:
+| File | Platform | How to run |
+|---|---|---|
+| `ascinemaeditor-desktop-macos-universal.zip` | macOS 11+ (Intel & Apple Silicon in one bundle) | Unzip → launch **Asciinema Editor.app**. Ad-hoc signed: if Gatekeeper blocks it, right-click the app → **Open**, or run `xattr -cr /Applications/Asciinema\ Editor.app`. |
+| `ascinemaeditor-desktop-windows-amd64.zip` | Windows 10/11 64-bit | Unzip → run `ascinemaeditor.exe`. Requires the (normally preinstalled) WebView2 runtime; hides the console window. |
+
+macOS desktop builds are compiled on macOS runners via CGO against Apple frameworks; Windows builds on Windows runners (WebView2 backend needs no CGO). Linux desktop packages are not published yet — use a server binary plus any browser.
+
+### Server binaries (browser mode)
+
+Single static executable that embeds the UI and serves it at `http://localhost:8080`. No dependencies, works anywhere:
+
+| File | Platform |
+|---|---|
+| `ascinemaeditor-server-linux-amd64` / `-arm64` | Linux |
+| `ascinemaeditor-server-darwin-amd64` / `-arm64` | macOS |
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+chmod +x ascinemaeditor-server-linux-amd64
+./ascinemaeditor-server-linux-amd64 serve   # then open http://localhost:8080
+```
+
+> Note: releases before v0.4.0 named these without the `server-` prefix and the desktop zips as `ascinemaeditor-macos-universal.zip` / `ascinemaeditor-windows-amd64.zip`.
+
+Both build types contain the full editor and built-in sample data, so you can start immediately after download. To cut a release yourself, tag and push:
+
+```bash
+git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
 ## File Structure
