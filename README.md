@@ -116,6 +116,11 @@ The prompt setting is stored in the browser's local storage, so it is reused the
 
 Prebuilt binaries for linux/darwin (amd64 + arm64) are published on the [releases page](https://github.com/cldmnky/ascinemaeditor/releases). Download one for your platform and run it directly; the editor ships with built-in sample data so you can start editing immediately. Each release includes SHA256 checksums.
 
+Desktop (Wails) builds are also published per tag:
+
+- `ascinemaeditor-macos-universal.zip` — signed `.app` bundle for macOS (Intel + Apple Silicon)
+- `ascinemaeditor-windows-amd64.zip` — Windows executable
+
 To cut a release, tag `v*` and push the tag:
 
 ```bash
