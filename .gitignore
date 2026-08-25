@@ -49,3 +49,9 @@ ascinemaeditor
 # Temporary files
 tmp/
 temp/
+
+# Wails
+build/bin/
+frontend/wailsjs/
+frontend/dist/index.html.md5
+package.json.md5

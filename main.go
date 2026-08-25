@@ -20,7 +20,7 @@ func main() {
 		runServer()
 		return
 	}
-	if runDesktopIfBuilt() {
+	if runWailsIfTagged() {
 		return
 	}
 	runServer()

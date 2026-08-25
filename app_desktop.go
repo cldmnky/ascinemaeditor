@@ -1,4 +1,4 @@
-//go:build desktop
+//go:build desktop || dev || production || bindings
 
 package main
 
@@ -14,7 +14,11 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-func runDesktopIfBuilt() bool {
+// runWailsIfTagged starts the Wails app when built with any Wails mode tag
+// (desktop, dev, production, bindings). Returns false when built without them
+// so main() can fall back to HTTP server mode. With the `bindings` tag,
+// wails.Run emits the bindings JSON and exits instead of opening a window.
+func runWailsIfTagged() bool {
 	app := NewApp()
 	err := wails.Run(&options.App{
 		Title:  "Asciinema Editor",

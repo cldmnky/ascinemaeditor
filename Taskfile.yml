@@ -5,6 +5,7 @@ vars:
   BINARY_NAME: 'ascinemaeditor'
   BIN_DIR: './bin'
   WAILS: '{{.BIN_DIR}}/wails'
+  APP_BIN: './build/bin/ascinemaeditor.app/Contents/MacOS/ascinemaeditor'
 
 tasks:
   build:
@@ -13,24 +14,6 @@ tasks:
       - mkdir -p {{.BIN_DIR}} frontend/dist
       - cp -f index.html frontend/dist/index.html
       - go build -o {{.BIN_DIR}}/{{.BINARY_NAME}} .
-    sources:
-      - main.go
-      - app.go
-      - app_desktop.go
-      - app_nodesktop.go
-      - go.mod
-      - go.sum
-      - index.html
-      - wails.json
-    generates:
-      - '{{.BIN_DIR}}/{{.BINARY_NAME}}'
-
-  build:desktop:
-    desc: Build the desktop binary with Wails (native dialogs, no browser)
-    cmds:
-      - mkdir -p {{.BIN_DIR}} frontend/dist
-      - cp -f index.html frontend/dist/index.html
-      - go build -tags desktop -o {{.BIN_DIR}}/{{.BINARY_NAME}} .
     sources:
       - main.go
       - app.go
@@ -56,7 +39,7 @@ tasks:
     cmds:
       - task: build
       - task: dev:watch
-    
+
   dev:watch:
     desc: Watch for changes and restart server
     deps: [build]
@@ -92,16 +75,16 @@ tasks:
     desc: Build and serve in browser mode (no Wails)
     deps: [build]
     cmds:
-      - echo "Starting Asciinema Web Editor on http://localhost:{{.PORT}} (desktop is default - just run ./bin/ascinemaeditor)"
+      - echo "Starting Asciinema Web Editor on http://localhost:{{.PORT}}"
       - '{{.BIN_DIR}}/{{.BINARY_NAME}} serve'
     env:
       PORT: '{{.PORT}}'
 
   desktop:
     desc: Build and run the Wails desktop app (no browser needed)
-    deps: [build:desktop]
+    deps: [wails:build]
     cmds:
-      - '{{.BIN_DIR}}/{{.BINARY_NAME}}'
+      - '{{.APP_BIN}}'
 
   wails:dev:
     desc: Run Wails in live-reload dev mode (requires wails CLI)
@@ -111,7 +94,7 @@ tasks:
     deps: [wails:install]
 
   wails:build:
-    desc: Build the Wails desktop binary for the current platform (output build/bin/)
+    desc: Build the Wails desktop app bundle (output build/bin/)
     cmds:
       - mkdir -p frontend/dist && cp -f index.html frontend/dist/index.html
       - '{{.WAILS}} build'

@@ -1,5 +1,5 @@
-//go:build !desktop
+//go:build !(desktop || dev || production || bindings)
 
 package main
 
-func runDesktopIfBuilt() bool { return false }
+func runWailsIfTagged() bool { return false }
