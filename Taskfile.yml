@@ -4,24 +4,33 @@ vars:
   PORT: '8080'
   BINARY_NAME: 'ascinemaeditor'
   BIN_DIR: './bin'
+  WAILS: '{{.BIN_DIR}}/wails'
+  APP_BIN: './build/bin/ascinemaeditor.app/Contents/MacOS/ascinemaeditor'
 
 tasks:
   build:
-    desc: Build the Go web server
+    desc: Build the binary (server mode; also syncs frontend/dist for Wails)
     cmds:
-      - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/{{.BINARY_NAME}} main.go
+      - mkdir -p {{.BIN_DIR}} frontend/dist
+      - cp -f index.html frontend/dist/index.html
+      - go build -o {{.BIN_DIR}}/{{.BINARY_NAME}} .
     sources:
       - main.go
+      - app.go
+      - app_desktop.go
+      - app_nodesktop.go
       - go.mod
+      - go.sum
+      - index.html
+      - wails.json
     generates:
       - '{{.BIN_DIR}}/{{.BINARY_NAME}}'
 
   run:
-    desc: Run the web server
+    desc: Run the web server (browser mode)
     deps: [build]
     cmds:
-      - '{{.BIN_DIR}}/{{.BINARY_NAME}}'
+      - '{{.BIN_DIR}}/{{.BINARY_NAME}} serve'
     env:
       PORT: '{{.PORT}}'
 
@@ -30,24 +39,25 @@ tasks:
     cmds:
       - task: build
       - task: dev:watch
-    
+
   dev:watch:
     desc: Watch for changes and restart server
     deps: [build]
     cmds:
-      - '{{.BIN_DIR}}/{{.BINARY_NAME}}'
+      - '{{.BIN_DIR}}/{{.BINARY_NAME}} serve'
     env:
       PORT: '{{.PORT}}'
     watch: true
     sources:
       - main.go
+      - app.go
       - index.html
       - test-data/**/*
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf {{.BIN_DIR}}
+      - rm -rf {{.BIN_DIR}} build/bin
 
   stop:
     desc: Stop any running editor server on port {{.PORT}}
@@ -62,14 +72,48 @@ tasks:
         fi
 
   serve:
-    desc: Build and serve the application
+    desc: Build and serve in browser mode (no Wails)
     deps: [build]
     cmds:
       - echo "Starting Asciinema Web Editor on http://localhost:{{.PORT}}"
-      - '{{.BIN_DIR}}/{{.BINARY_NAME}}'
+      - '{{.BIN_DIR}}/{{.BINARY_NAME}} serve'
     env:
       PORT: '{{.PORT}}'
 
+  desktop:
+    desc: Build and run the Wails desktop app (no browser needed)
+    deps: [wails:build]
+    cmds:
+      - '{{.APP_BIN}}'
+
+  wails:dev:
+    desc: Run Wails in live-reload dev mode (requires wails CLI)
+    cmds:
+      - mkdir -p frontend/dist && cp -f index.html frontend/dist/index.html
+      - '{{.WAILS}} dev'
+    deps: [wails:install]
+
+  wails:build:
+    desc: Build the Wails desktop app bundle (output build/bin/)
+    cmds:
+      - mkdir -p frontend/dist && cp -f index.html frontend/dist/index.html
+      - '{{.WAILS}} build'
+    deps: [wails:install]
+
+  wails:install:
+    desc: Install the Wails CLI to ./bin/wails if missing
+    cmds:
+      - |
+        if [ -x "{{.WAILS}}" ]; then
+          "{{.WAILS}}" version >/dev/null 2>&1 && exit 0
+        fi
+        echo "Installing wails CLI to {{.WAILS}}..."
+        GOBIN="$(pwd)/{{.BIN_DIR}}" go install github.com/wailsapp/wails/v2/cmd/wails@latest
+    generates:
+      - '{{.WAILS}}'
+    status:
+      - test -x {{.WAILS}}
+
   default:
-    desc: Default task - build and serve
-    deps: [serve]
+    desc: Default task - build and run the desktop app
+    deps: [desktop]

@@ -9,8 +9,9 @@ permissions:
   contents: write
 
 jobs:
+  # Server/browser-mode binaries: static, no CGO, built on Linux.
   build:
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    name: Server ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -45,8 +46,85 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # Wails desktop app for macOS. Needs a real macOS runner: the Cocoa/WebKit
+  # backend is compiled via CGO against Apple frameworks. A universal build
+  # covers both Intel and Apple Silicon in one bundle.
+  desktop-darwin:
+    name: Desktop darwin (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Sync embedded frontend
+        run: |
+          mkdir -p frontend/dist
+          cp index.html frontend/dist/index.html
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build desktop app (darwin/universal)
+        run: "$(go env GOPATH)/bin/wails build -platform darwin/universal -ldflags '-w -s'"
+
+      - name: Zip app bundle
+        run: |
+          mkdir -p dist
+          cd build/bin
+          zip -r -y --quiet "../../dist/ascinemaeditor-macos-universal.zip" ascinemaeditor.app
+          cd ../..
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ascinemaeditor-macos-universal
+          path: dist/*
+          if-no-files-found: error
+
+  # Wails desktop app for Windows. Built on a Windows runner: the WebView2
+  # backend needs no CGO, but cross-compiling Wails -> Windows from Linux is
+  # not supported by the CLI. windowsgui subsystem hides the console window.
+  desktop-windows:
+    name: Desktop windows (amd64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Sync embedded frontend
+        shell: bash
+        run: |
+          mkdir -p frontend/dist
+          cp index.html frontend/dist/index.html
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build desktop app (windows/amd64)
+        shell: bash
+        run: "$(go env GOPATH)/bin/wails.exe build -platform windows/amd64 -ldflags '-w -s -H windowsgui'"
+
+      - name: Zip executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path build/bin/ascinemaeditor.exe -DestinationPath dist/ascinemaeditor-windows-amd64.zip
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ascinemaeditor-windows-amd64
+          path: dist/*
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, desktop-darwin, desktop-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
